@@ -63,7 +63,7 @@ jobs:
           mkdir -p artifacts/logs
           bash ci/hosted-native.sh 2>&1 | tee artifacts/logs/hosted-native.log
       - name: Save verified native dependency cache
-        if: steps.cache.outputs.cache-hit != 'true'
+        if: always() && steps.cache.outputs.cache-hit != 'true' && hashFiles('.native-cache/plexium-work/.ci-dependencies') != ''
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: .native-cache

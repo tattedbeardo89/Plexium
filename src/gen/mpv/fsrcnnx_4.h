@@ -1,4 +1,4 @@
-	// 1115.2.0
+// Generated SPIR-V; compiler pinned in ci/build-lock.json.
 	 #pragma once
 const uint32_t spv_mpv_fsrcnnx_4[] = {
 	0x07230203,0x00010300,0x0008000b,0x00000322,0x00000000,0x00020011,0x00000001,0x00020011,
