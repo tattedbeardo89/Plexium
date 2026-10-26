@@ -1,4 +1,5 @@
 name: Retrieve native build diagnostics
+# Inspect the latest completed failure without rebuilding its dependencies.
 on:
   workflow_dispatch:
   push:
