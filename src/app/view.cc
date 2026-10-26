@@ -49,6 +49,7 @@ struct Canvas {
 
 };
 Command command(Action a,std::string id="",std::string text=""){return {a,std::move(id),std::move(text)};}
+Command details(const plex::Item &item){return command(Action::Details,item.id,item.type);}
 }
 std::optional<Command> View::frame(const Model&m,unsigned keys,float dt){
  Canvas c;c.image=image;c.aspect=aspect;c.books=m.books;if(m.screen!=Screen::Playback)c.box(0,0,1920,1080,IM_COL32(10,11,18,255),0);
@@ -117,12 +118,12 @@ std::optional<Command> View::frame(const Model&m,unsigned keys,float dt){
   else if((m.detail.type=="track"||m.detail.type=="album")&&!m.detail.artist.empty())context=m.detail.artist+(genres.empty()?"":" · "+genres);
   c.text(685,345,plex::utf8_prefix(context,100),24,c.muted);
   c.wrap(685,391,plex::utf8_prefix(m.detail.summary,530),1080,26);
-  bool container=m.detail.type=="show"||m.detail.type=="season"||m.detail.type=="artist"||m.detail.type=="album"||m.detail.type=="collection";
+  bool container=m.detail.type=="show"||m.detail.type=="season"||m.detail.type=="artist"||m.detail.type=="album"||m.detail.type=="collection"||m.detail.type=="playlist";
   if(keys&Down){if(row==0){row=1;column=0;}else if(detail_panel==3)++row;else if(detail_panel==1)detail_scroll+=70;}
   if(keys&Up){if(row>0){if(detail_panel==1&&detail_scroll>0)detail_scroll=std::max(0.f,detail_scroll-70);else --row;}column=0;}
   if(keys&Right)++column;if(keys&Left)--column;
   if(row==0)column=std::clamp(column,0,3);
-  const std::string labels[]={container?(m.detail.type=="show"?"View seasons":m.detail.type=="season"?"View episodes":m.detail.type=="artist"?(m.books?"View books":"View albums"):"View tracks"):m.detail.offset>0?"Resume":"Play","Full story","Cast","Related"};
+  const std::string labels[]={container?(m.detail.type=="show"?"View seasons":m.detail.type=="season"?"View episodes":m.detail.type=="artist"?(m.books?"View books":"View albums"):m.detail.type=="collection"?"View collection":"View tracks"):m.detail.offset>0?"Resume":"Play","Full story","Cast","Related"};
   for(int i=0;i<4;++i)c.button(680+i*270,565,250,labels[i],row==0&&column==i);
   if(row==0&&(keys&Cross)){if(column==0)return command(container?Action::Children:Action::Play,m.detail.id);detail_panel=column;row=1;column=0;detail_scroll=0;}
   if(detail_panel==1){
@@ -150,7 +151,7 @@ std::optional<Command> View::frame(const Model&m,unsigned keys,float dt){
     column=std::clamp(column,0,std::max(0,int(rail.entries.size())-1));int first=std::max(0,column-5);
     c.text(425,690,rail.title,32);if(image&&!rail.entries.empty())image(rail.entries[column],false);
     for(int i=first;i<std::min(int(rail.entries.size()),first+6);++i)c.card(425+(i-first)*230,745,rail.entries[i],row>0&&i==column);
-    if(row>0&&(keys&Cross)&&!rail.entries.empty())return command(Action::Details,rail.entries[column].id);
+    if(row>0&&(keys&Cross)&&!rail.entries.empty())return details(rail.entries[column]);
    }else c.text(425,720,m.busy?"Loading more information…":"No related titles were supplied by this server.",25,c.muted);
   }
   break;}
@@ -200,7 +201,7 @@ std::optional<Command> View::frame(const Model&m,unsigned keys,float dt){
      if(image&&!rail.entries.empty())image(rail.entries[chosen],false);
      for(int i=first;i<std::min(int(rail.entries.size()),first+6);++i)c.card(425+(i-first)*230,400,rail.entries[i],!sidebar&&row>=0&&i==column);
      if(std::max(0,row)+1<int(m.rails.size()))c.text(425,850,m.rails[std::max(0,row)+1].title+"  ·  Down for more",28,c.muted);
-     if((keys&Cross)&&!sidebar&&row>=0&&!rail.entries.empty())return command(Action::Details,rail.entries[column].id);
+     if((keys&Cross)&&!sidebar&&row>=0&&!rail.entries.empty())return details(rail.entries[column]);
     }else c.text(425,400,m.busy?"Loading recommendations…":"No recommendations available. Choose Library above.",29,c.muted);
    }else{
     int rows=(int(m.entries.size())+5)/6;bool next=m.page_start+int(m.entries.size())<m.total,prior=m.page_start>0;
@@ -215,7 +216,7 @@ std::optional<Command> View::frame(const Model&m,unsigned keys,float dt){
     if(m.total)c.text(425,1020,"Page "+std::to_string(m.page_start/60+1)+" · "+std::to_string(m.total)+" items",20,c.muted);
     if((keys&Cross)&&!sidebar&&row>=0){
      if(row==rows&&(next||prior))return command(Action::Page,prior&&column==0?"previous":"next");
-     if(!m.entries.empty()){const auto &i=m.entries[selected];return i.type=="category"?command(Action::Browse,m.library_id,i.key):command(i.type=="channel"?Action::PlayLive:Action::Details,i.id);}
+     if(!m.entries.empty()){const auto &i=m.entries[selected];return i.type=="category"?command(Action::Browse,m.library_id,i.key):(i.type=="channel"?command(Action::PlayLive,i.id):details(i));}
     }
    }
   }else{
@@ -225,13 +226,13 @@ std::optional<Command> View::frame(const Model&m,unsigned keys,float dt){
     if(hero&&image){auto t=image(*hero,true);if(t){c.d->AddImage(ImTextureRef(t),c.p(400,210),c.p(1830,680));c.box(400,210,1430,470,IM_COL32(10,11,18,180));}}
     c.text(425,270,hero?hero->title:"Welcome to your cinema.",54);
     c.wrap(430,365,hero?hero->summary:"Your authorized media will appear here. Choose a library from the sidebar.",1100,29);
-    c.button(430,570,330,"More info",!sidebar);if(hero&&(keys&Cross)&&!sidebar)return command(Action::Details,hero->id);
+    c.button(430,570,330,"More info",!sidebar);if(hero&&(keys&Cross)&&!sidebar)return details(*hero);
     if(!m.rails.empty()){c.text(425,700,m.rails[0].title,32);for(size_t i=0;i<std::min(size_t(6),m.rails[0].entries.size());++i)c.card(425+i*230,760,m.rails[0].entries[i],false);}
    }else{
     const auto&r=m.rails[row];column=std::clamp(column,0,std::max(0,int(r.entries.size())-1));int first=std::max(0,column-5);
     c.text(425,240,r.title,43);if(image&&!r.entries.empty())image(r.entries[column],false);for(int i=first;i<std::min(int(r.entries.size()),first+6);++i)c.card(425+(i-first)*230,340,r.entries[i],!sidebar&&i==column);
     if(row+1<int(m.rails.size()))c.text(425,785,m.rails[row+1].title,32,c.muted);
-    if((keys&Cross)&&!sidebar&&!r.entries.empty())return command(Action::Details,r.entries[column].id);
+    if((keys&Cross)&&!sidebar&&!r.entries.empty())return details(r.entries[column]);
    }
   }break;}
  }

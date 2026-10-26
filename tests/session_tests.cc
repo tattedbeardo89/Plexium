@@ -37,6 +37,11 @@ int main(){
    return reply({{"MediaContainer",{{"Metadata",entries},{"totalSize",3700}}}});
   }
   if(q.url.find("/hubs/sections/1")!=std::string::npos)return reply(plex::Json::parse(R"({"MediaContainer":{"Hub":[{"title":"Recommended Movies","Metadata":[{"ratingKey":"1","title":"Film","type":"movie","librarySectionID":"1"}]}]}})"));
+  if(q.url.find("/library/collections/7/children")!=std::string::npos)return reply(plex::Json::parse(R"({"MediaContainer":{"Metadata":[{"ratingKey":"1","title":"Film","type":"movie"}]}})"));
+  if(q.url.find("/library/collections/7")!=std::string::npos)return reply(plex::Json::parse(R"({"MediaContainer":{"Metadata":[{"ratingKey":"7","title":"Fixture collection","type":"collection"}]}})"));
+  if(q.url.find("/playlists/8/items")!=std::string::npos)return reply(plex::Json::parse(R"({"MediaContainer":{"Metadata":[{"ratingKey":"9","title":"Fixture song","type":"track","parentThumb":"/album-cover"}]}})"));
+  if(q.url.find("/playlists/8")!=std::string::npos)return reply(plex::Json::parse(R"({"MediaContainer":{"Playlist":[{"ratingKey":"8","title":"Fixture playlist","type":"playlist"}]}})"));
+  if(q.url.find("/library/metadata/9")!=std::string::npos)return reply(plex::Json::parse(R"({"MediaContainer":{"Metadata":[{"ratingKey":"9","title":"Fixture song","type":"track","duration":90000,"parentTitle":"Fixture album","grandparentTitle":"Fixture artist","Media":[{"audioCodec":"mp3","container":"mp3","Part":[{"key":"/library/parts/9/file.mp3"}]}]}]}})"));
   if(q.url.find("/library/metadata/1/related")!=std::string::npos)return reply(plex::Json::parse(R"({"MediaContainer":{"Hub":[{"title":"Related Movies","Metadata":[{"ratingKey":"2","title":"Another film","type":"movie"}]}]}})"));
   if(q.url.find("/library/metadata/1")!=std::string::npos)return reply(plex::Json::parse(R"({"MediaContainer":{"Metadata":[{"ratingKey":"1","title":"Film","type":"movie","duration":90000,"viewOffset":12000,"Role":[{"tag":"Actor One","role":"Lead","thumb":"/actor/1"},{"tag":"Actor Two","role":"Supporting","thumb":"/actor/2"}],"Media":[{"videoCodec":"h264","container":"mp4","Part":[{"key":"/library/parts/1/file.mp4"}]}]}]}})"));
   if(q.url.find("/library/sections/1")!=std::string::npos||q.url.find("/hubs/continueWatching")!=std::string::npos)return reply({{"MediaContainer",{{"Metadata",plex::Json::array({{{"ratingKey","1"},{"title","Film"},{"type","movie"},{"librarySectionID","1"},{"originallyAvailableAt","2026-10-01"},{"duration",90000},{"viewOffset",12000}}})}}}});
@@ -64,6 +69,13 @@ int main(){
  m=session.dispatch({Action::Pause,{},{}});assert(player.is_paused&&last_timeline.find("state=paused")!=std::string::npos);
  m=session.dispatch({Action::Stop,{},"45000"});assert(m.screen==Screen::Details&&m.detail.offset==45000&&last_timeline.find("time=45000")!=std::string::npos);
  before=requests;m=session.dispatch({Action::Home,{},{}});assert(requests==before&&m.rails.front().entries.front().offset==45000);
+ m=session.dispatch({Action::Details,"7","collection"});assert(m.detail.type=="collection"&&!m.detail_rails.empty());
+ m=session.dispatch({Action::Children,"7",{}});assert(m.screen==Screen::Library&&m.entries.front().type=="movie");
+ m=session.dispatch({Action::Details,"8","playlist"});assert(m.detail.type=="playlist"&&!m.detail_rails.empty());
+ m=session.dispatch({Action::Children,"8",{}});assert(m.entries.front().type=="track");
+ m=session.dispatch({Action::Details,"9","track"});assert(m.detail.artist=="Fixture artist");
+ m=session.dispatch({Action::Play,{},{}});assert(m.screen==Screen::Playback&&player.last_url.find("/library/parts/9/file.mp3?")!=std::string::npos);
+ m=session.dispatch({Action::Stop,{},{}});
  m=session.dispatch({Action::FreeTV,{},{}});assert(m.entries.size()==1&&m.entries.front().type=="channel");
  assert(session.media_context().base==plex::free_tv_origin&&session.media_context().token=="profile-token");
  m=session.dispatch({Action::PlayLive,"abc123",{}});assert(m.screen==Screen::Playback&&player.last_url.rfind("https://epg.provider.plex.tv/library/parts/channel123?",0)==0);

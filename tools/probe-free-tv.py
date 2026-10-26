@@ -44,7 +44,7 @@ status, session = request('https://clients.plex.tv/api/v2/users/anonymous', 'POS
 token = session.get('authToken') or session.get('authenticationToken') if isinstance(session, dict) else None
 if not isinstance(token, str):
     token = None
-provider_status, provider = request('https://epg.provider.plex.tv/lineups/plex/channels?includeMetadata=1', token=token) if token else (0, {})
+provider_status, provider = request('https://epg.provider.plex.tv/lineups/plex/channels?includeMetadata=1', token=token)
 container = provider.get('MediaContainer', {}) if isinstance(provider, dict) else {}
 channels = container.get('Channel', []) if isinstance(container, dict) else []
 report = {'anonymous_registration_http': status, 'provider_http': provider_status,

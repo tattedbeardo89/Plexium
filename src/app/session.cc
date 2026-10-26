@@ -225,7 +225,7 @@ Model Session::dispatch(const Command &c){
   if(c.id.empty()||c.id.find_first_not_of("0123456789")!=std::string::npos){fail("Invalid media identity");break;}
   if(history.size()>=16)history.erase(history.begin());history.push_back(model);
   {auto cached=pages.find("detail:"+c.id);if(cached!=pages.end()&&now()-cached->second.loaded<180){model=cached->second.value;break;}}
-  if(listing("/library/metadata/"+c.id)&&!model.entries.empty()){
+  if(listing((c.text=="collection"?"/library/collections/":c.text=="playlist"?"/playlists/":"/library/metadata/")+c.id)&&!model.entries.empty()){
    model.detail=model.entries.front();model.entries.clear();model.detail_rails.clear();model.screen=Screen::Details;if(progress)progress(model);
    if(metadata.size()>=32)metadata.erase(metadata.begin());metadata[c.id]={model.detail,now()};
    if(model.detail.type=="episode"&&(!model.detail.grandparent_id.empty())&&(model.detail.credits.size()<3||model.detail.grandparent_thumb.empty())){
@@ -248,10 +248,10 @@ Model Session::dispatch(const Command &c){
     }
    }
    auto bounded=client.bounded(1000,2000);auto type=model.detail.type;
-   if(type=="show"||type=="season"||type=="artist"||type=="album"||type=="collection"){
-    auto path=type=="collection"?"/library/collections/":"/library/metadata/";
-    auto response=bounded.browse(base,token,path+c.id+"/children",0,12);
-    if(response){auto children=plex::items(response.data,false);if(!children.empty())model.detail_rails.push_back({"children",type=="show"?"Seasons":type=="season"?"Episodes":type=="artist"?(model.books?"Books":"Albums"):type=="album"?(model.books?"Chapters":"Tracks"):"Collection",false,std::move(children)});}
+   if(type=="show"||type=="season"||type=="artist"||type=="album"||type=="collection"||type=="playlist"){
+    std::string path=type=="collection"?"/library/collections/":type=="playlist"?"/playlists/":"/library/metadata/";
+    auto response=bounded.browse(base,token,path+c.id+(type=="playlist"?"/items":"/children"),0,12);
+    if(response){auto children=plex::items(response.data,false);if(!children.empty())model.detail_rails.push_back({"children",type=="show"?"Seasons":type=="season"?"Episodes":type=="artist"?(model.books?"Books":"Albums"):(type=="album"||type=="playlist")?(model.books?"Chapters":"Tracks"):"Collection",false,std::move(children)});}
     if(progress)progress(model);
    }
    if(type=="movie"||type=="episode"||type=="show"){
@@ -263,7 +263,7 @@ Model Session::dispatch(const Command &c){
  case Action::Children:
   if(c.id.empty()||c.id.find_first_not_of("0123456789")!=std::string::npos){fail("Invalid parent identity");break;}
   if(history.size()>=16)history.erase(history.begin());history.push_back(model);model.screen=Screen::Library;model.library_title=model.detail.title;model.library_id.clear();model.library_tab.clear();model.rails.clear();
-  listing((model.detail.type=="collection"?"/library/collections/":"/library/metadata/")+c.id+"/children");break;
+  listing((model.detail.type=="collection"?"/library/collections/":model.detail.type=="playlist"?"/playlists/":"/library/metadata/")+c.id+(model.detail.type=="playlist"?"/items":"/children"));break;
  case Action::Play:{
   if(model.detail.type!="movie"&&model.detail.type!="episode"&&model.detail.type!="track"){fail("Select a playable item");break;}
   auto decision=model.detail.type=="track"?plex::audio_direct_play(base,token,model.detail):plex::direct_play(base,token,model.detail);

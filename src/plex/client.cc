@@ -59,7 +59,7 @@ std::vector<Item> items(const Json &j,bool include_media) {
     std::vector<Item> out;
     checkpoint(7,"container");
     const auto &c = container(j);
-    const char *key = c.contains("Metadata") ? "Metadata" : "Directory";
+    const char *key = c.contains("Metadata") ? "Metadata" : c.contains("Playlist") ? "Playlist" : "Directory";
     auto it = c.find(key);
     if (it == c.end() || !it->is_array())
         return out;

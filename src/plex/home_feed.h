@@ -94,8 +94,9 @@ inline Result home_feed(Client &client,const std::string &base,const std::string
         {"recentlyReleasedTV","show","/all?type=4&sort=originallyAvailableAt:desc"},
         {"recentlyAddedMovies","movie","/recentlyAdded?type=1"},
         {"recentlyAddedTV","show","/all?type=2&sort=addedAt:desc"}};
-    for(const auto &category:categories){int queried=0;for(const auto &section:sections){
-        if(fast && !slots[category.id].empty())break;
+    for(const auto &category:categories){
+        if(fast && !slots[category.id].empty())continue;
+        int queried=0;for(const auto &section:sections){
         if(!current())return fast && !snapshot()["rows"].empty()?Result{snapshot(),"",200}:Result{{},"Home loading cancelled",0};
         if(section.type!=category.type || personal_library(section))continue;
         if(++queried>32){warnings.push_back("Home aggregation capped at 32 authorized sections per category");break;}

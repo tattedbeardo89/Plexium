@@ -30,5 +30,14 @@ int main() {
     fast_calls=0;
     auto partial=home_feed(fast_client,"https://fixture.invalid","profile-scoped-token",{movie,tv},[&]{return fast_calls<2;},{},true);
     assert(partial&&!home_rows(partial.data).empty());
+    Client fallback([](const Request &q){
+        if(q.url.find("/library/sections/")==std::string::npos)return Reply{200,R"({"MediaContainer":{"Metadata":[]}})",""};
+        const bool second=q.url.find("/sections/3/")!=std::string::npos;
+        Json entry={{"ratingKey",second?"200":"100"},{"type","movie"},{"title",second?"Second library":"First library"},{"originallyAvailableAt","2001-01-01"}};
+        return Reply{200,Json{{"MediaContainer",{{"Metadata",Json::array({entry})}}}}.dump(),""};
+    },"fixture");
+    auto other=movie;other.id="3";
+    auto aggregated=home_rows(home_feed(fallback,"https://fixture.invalid","profile-scoped-token",{movie,other},[]{return true;},{},true).data);
+    assert(aggregated.size()==2);for(const auto &row:aggregated)assert(row.entries.size()==2);
     std::cout<<"Home feed tests passed: real Continue Watching identity/progress, empty rows omitted, release-date query, scoped token, cancellation, unsupported endpoints\n";
 }
