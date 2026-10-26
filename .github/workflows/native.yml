@@ -133,3 +133,8 @@ jobs:
           path: artifacts/logs/
           if-no-files-found: error
           retention-days: 90
+      - name: Record bounded native failure diagnostics in the existing draft
+        if: failure() && steps.native.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash ci/report-native-failure.sh
