@@ -52,3 +52,11 @@ Native source: `2fbce98d89f830bd0df67f321fa7262296b6f643`. ELF build ID: `3cf535
 - `Plexium-source.bundle`: SHA-256 `b2ddef5df0f020abb24faa96929c1488c413d173b7c5913a532d30174b224bce`
 
 Physical PS5 firmware 13.40/live Plex acceptance remains unrun. The earlier local hashes above describe a separate historical candidate.
+
+## Browsing update validation — 2026-10-26
+
+The user reports the original candidate shows the correct PS5 home icon, a generally working UI and working video playback. This is user-reported acceptance of that original candidate, not a developer-run hardware test or acceptance of the new update.
+
+The updated host suites and shared-view regressions pass, including avatar callback wiring, detail poster/backdrop requests, multiple cast portraits, automatic video overlay hiding/waking/paused-buffering behavior, 60-item pages for a 3,700-item fixture, scoped warm caches, incremental Home publication, reduced populated-hub requests, preserved stopped resume positions and scoped non-DRM cloud-channel dispatch. ASan/UBSan and both ten-scenario HTTP/TLS adapters also passed during this update. Final native CI reruns the host/sanitizer checks against its exact source commit.
+
+The new native candidate is being built separately from the original 0.1 rollback release. Its attached native-validation.json and SHA256SUMS will identify the new compiled source and symbols. Experimental Free Live TV still requires real profile/region/native audio-video/ad/session acceptance; metadata compatibility reports are distinct from stream tests.

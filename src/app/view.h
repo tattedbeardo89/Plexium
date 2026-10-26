@@ -11,8 +11,17 @@ class View {
  bool sidebar=false;
  std::string selected_profile,entry;
  std::map<std::string,std::pair<int,int>> focus;
+ float playback_idle=0;
+ bool playback_controls=true;
+ std::string detail_focus;
+ std::string listing_focus;
+ int detail_panel=3;
+ float detail_scroll=0;
  public:
  std::function<ImTextureID(const plex::Item&,bool)> image;
+ std::function<float(ImTextureID)> aspect;
+ std::function<ImTextureID(const std::string&)> avatar;
+ bool controls_visible()const{return playback_controls;}
  std::optional<Command> frame(const Model&,unsigned pressed,float dt);
  bool sensitive(const Model&m)const{return m.screen==Screen::Pin;}
 };

@@ -2177,7 +2177,7 @@ void side_subs_find(const std::string &url, int serial)
         }
         uris.swap(ready);
         libvlc_release(inst);
-        fprintf(stderr, "player: %zu subtitle file(s) beside %s\n", uris.size(), url.c_str());
+        fprintf(stderr, "player: %zu subtitle file(s) beside %s\n", uris.size(), "[media source redacted]");
         std::lock_guard<std::mutex> g(side.lock);
         if (side.serial != serial)
             return;

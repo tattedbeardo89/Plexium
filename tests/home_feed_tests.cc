@@ -19,5 +19,16 @@ int main() {
     assert(home_rows(home_feed(empty,"https://fixture.invalid","profile-scoped-token",{}).data).empty());
     Client unavailable([](const Request &){return Reply{404,"",""};},"fixture");
     auto missing=home_feed(unavailable,"https://fixture.invalid","profile-scoped-token",{});assert(missing && home_rows(missing.data).empty());
+    int fast_calls=0,published=0;
+    Client fast_client([&](const Request &q){
+        ++fast_calls;assert(q.url.find("/library/sections/")==std::string::npos);
+        if(q.url.find("/hubs/continueWatching")!=std::string::npos)return Reply{200,R"({"MediaContainer":{"Metadata":[{"ratingKey":"42","type":"movie","title":"Continue"}]}})",""};
+        return Reply{200,R"({"MediaContainer":{"Hub":[{"hubIdentifier":"recentlyReleasedMovies","type":"movie","Metadata":[{"ratingKey":"1","type":"movie","originallyAvailableAt":"2001-01-01"}]},{"hubIdentifier":"recentlyReleasedTV","type":"episode","Metadata":[{"ratingKey":"2","type":"episode","originallyAvailableAt":"2001-01-01"}]},{"hubIdentifier":"recentlyAddedMovies","type":"movie","Metadata":[{"ratingKey":"3","type":"movie"}]},{"hubIdentifier":"recentlyAddedTV","type":"show","Metadata":[{"ratingKey":"4","type":"show"}]}]}})",""};
+    },"fixture");
+    auto fast=home_feed(fast_client,"https://fixture.invalid","profile-scoped-token",{movie,tv},[]{return true;},[&](const Json&){++published;},true);
+    assert(fast&&fast_calls==2&&published>=2&&home_rows(fast.data).size()==5);
+    fast_calls=0;
+    auto partial=home_feed(fast_client,"https://fixture.invalid","profile-scoped-token",{movie,tv},[&]{return fast_calls<2;},{},true);
+    assert(partial&&!home_rows(partial.data).empty());
     std::cout<<"Home feed tests passed: real Continue Watching identity/progress, empty rows omitted, release-date query, scoped token, cancellation, unsupported endpoints\n";
 }

@@ -41,6 +41,7 @@ struct Server {
     std::vector<Connection> connections;
     bool https_required = false;
 };
+struct Credit {std::string name,role,thumb;};
 struct Item {
     std::string id, key, type, title, summary, thumb, art;
     int year = 0, season = 0, episode = 0;
@@ -54,6 +55,9 @@ struct Item {
     int64_t added=0, last_played=0;
     std::string parent_thumb,grandparent_thumb,parent_art,grandparent_art;
     bool personal = false; // local section designation; never trusted from server JSON
+    std::string studio,rating,tagline;
+    std::vector<std::string> directors;
+    std::vector<Credit> credits;
 };
 struct Pin {
     int64_t id = 0;

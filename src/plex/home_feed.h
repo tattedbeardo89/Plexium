@@ -39,7 +39,7 @@ inline Json ordered_home(const Json &source){
 }
 inline Result home_feed(Client &client,const std::string &base,const std::string &token,
                         const std::vector<Item> &sections,const std::function<bool()> &current=[] {return true;},
-                        const std::function<void(const Json&)> &publish={}) {
+                        const std::function<void(const Json&)> &publish={},bool fast=false) {
     std::map<std::string,std::vector<Item>> slots;Json warnings=Json::array();
     std::set<std::string> authorized;for(const auto &section:sections)authorized.insert(section.id);
     auto snapshot=[&] {
@@ -72,16 +72,22 @@ inline Result home_feed(Client &client,const std::string &base,const std::string
         if(publish && current())publish(snapshot());
     };
     auto get=[&](const std::string &path){return current()?client.call("GET",base,path,token):Result{{},"Home loading cancelled",0};};
-    auto cw=get("/hubs/continueWatching?X-Plex-Container-Start=0&X-Plex-Container-Size=12");
-    if(cw)merge("continueWatching",cw.data);else warnings.push_back("Continue Watching unavailable on this server (HTTP "+std::to_string(cw.status)+")");
-    auto hubs=get("/hubs?count=12&includeEmpty=0");
-    if(hubs){auto mc=hubs.data.find("MediaContainer");if(mc!=hubs.data.end() && mc->is_object()){
-        auto list=mc->find("Hub");if(list!=mc->end() && list->is_array())for(const auto &hub:*list){
-            auto scope=text(hub,"librarySectionID",number(hub,"librarySectionID")>0?std::to_string(number(hub,"librarySectionID")):"");
-            if(!scope.empty() && !authorized.count(scope))continue;
-            merge(hub_semantic(hub),Json{{"MediaContainer",hub}},scope);
-        }
-    }}
+    auto load_continuing=[&]{
+        auto cw=get("/hubs/continueWatching?X-Plex-Container-Start=0&X-Plex-Container-Size=12");
+        if(cw)merge("continueWatching",cw.data);else warnings.push_back("Continue Watching unavailable on this server (HTTP "+std::to_string(cw.status)+")");
+    };
+    auto load_hubs=[&]{
+        auto hubs=get("/hubs?count=12&includeEmpty=0");
+        if(hubs){auto mc=hubs.data.find("MediaContainer");if(mc!=hubs.data.end() && mc->is_object()){
+            auto list=mc->find("Hub");if(list!=mc->end() && list->is_array())for(const auto &hub:*list){
+                auto scope=text(hub,"librarySectionID",number(hub,"librarySectionID")>0?std::to_string(number(hub,"librarySectionID")):"");
+                if(!scope.empty() && !authorized.count(scope))continue;
+                merge(hub_semantic(hub),Json{{"MediaContainer",hub}},scope);
+            }
+        }}
+    };
+    if(fast){load_hubs();if(slots["continueWatching"].empty()&&current())load_continuing();}
+    else {load_continuing();load_hubs();}
     struct Category {const char *id,*type,*path;};
     const Category categories[]={
         {"recentlyReleasedMovies","movie","/all?type=1&sort=originallyAvailableAt:desc"},
@@ -89,13 +95,14 @@ inline Result home_feed(Client &client,const std::string &base,const std::string
         {"recentlyAddedMovies","movie","/recentlyAdded?type=1"},
         {"recentlyAddedTV","show","/all?type=2&sort=addedAt:desc"}};
     for(const auto &category:categories){int queried=0;for(const auto &section:sections){
-        if(!current())return {{},"Home loading cancelled",0};
+        if(fast && !slots[category.id].empty())break;
+        if(!current())return fast && !snapshot()["rows"].empty()?Result{snapshot(),"",200}:Result{{},"Home loading cancelled",0};
         if(section.type!=category.type || personal_library(section))continue;
         if(++queried>32){warnings.push_back("Home aggregation capped at 32 authorized sections per category");break;}
         auto result=get("/library/sections/"+encode(section.id)+category.path+"&X-Plex-Container-Size=12");
         if(result)merge(category.id,result.data,section.id);
     }}
-    if(!current())return {{},"Home loading cancelled",0};
+    if(!current() && !(fast && !snapshot()["rows"].empty()))return {{},"Home loading cancelled",0};
     return {snapshot(),"",200};
 }
 }

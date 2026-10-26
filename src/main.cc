@@ -61,16 +61,19 @@ int main(){
   double now=plat_time();float dt=std::clamp(float(now-last),.001f,.1f);last=now;PadState pad{};plat_pad_read(&pad);
   unsigned pressed=buttons(pad.buttons&~previous);previous=pad.buttons;
   auto model=runtime.snapshot();auto access=runtime.media_context();
-  if(art_scope!=access.scope){artwork.clear();art_scope=access.scope;artwork.set_scope(std::string(plexium::data_path)+"/art",access.scope);}
+  if(model.screen==plexium::Screen::Playback){model.paused=player_paused();model.buffering=player_buffering();}
+  if(art_scope!=access.scope){artwork.clear();art_scope=access.scope;artwork.set_scope(std::string(plexium::data_path)+"/art",access.scope);artwork.set_avatar_scope(std::string(plexium::data_path)+"/avatars",access.account_token);}
   artwork.update();
-  view.image=[&](const plex::Item &item,bool landscape){return landscape?artwork.landscape(access.base,access.token,item.art):artwork.get(access.base,access.token,plexium::poster(item));};plat_pad_set_private(view.sensitive(model));
+  view.image=[&](const plex::Item &item,bool landscape){return artwork.media(access.base,access.token,item,landscape);};
+  view.aspect=[&](ImTextureID texture){return artwork.aspect(texture);};
+  view.avatar=[&](const std::string &url){return artwork.avatar(url,access.account_token);};plat_pad_set_private(view.sensitive(model));
   if(model.screen==plexium::Screen::Linking&&now>=poll&&!model.busy){runtime.send({plexium::Action::Poll,{},{}});poll=now+2;}
   if(model.screen==plexium::Screen::Playback&&now>=timeline&&!model.busy){runtime.send({plexium::Action::Tick,{},{}});timeline=now+10;}
-  if(model.screen==plexium::Screen::Playback&&player_ended()&&!model.busy)runtime.send({plexium::Action::Stop,{},{}});
+  if(model.screen==plexium::Screen::Playback&&player_ended()&&!model.busy)runtime.send({plexium::Action::Stop,"ended",{}});
   ImGui_ImplVulkan_NewFrame();io.DisplaySize={float(gfx.width),float(gfx.height)};io.DeltaTime=dt;ImGui::NewFrame();
   auto action=view.frame(model,pressed,dt);if(action){if(action->action==plexium::Action::Stop){action->text=std::to_string(player_time());player_stop();}runtime.send(*action);}ImGui::Render();
   auto cmd=gfx_begin_frame();if(!cmd)continue;
-  video_upload(cmd);bool playing=model.screen==plexium::Screen::Playback;
+  video_upload(cmd);bool playing=model.screen==plexium::Screen::Playback&&model.detail.type!="track";
   video_prepare(cmd,playing?float(gfx.width):0,playing?float(gfx.height):0);gfx_begin_pass(cmd);
   if(playing){float aspect=video_picture_aspect();float w=float(gfx.width),h=aspect>0?w/aspect:float(gfx.height);if(h>gfx.height){h=float(gfx.height);w=h*aspect;}video_draw(cmd,(gfx.width-w)/2,(gfx.height-h)/2,w,h);}
   ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(),cmd);gfx_end_frame(cmd);

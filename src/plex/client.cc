@@ -85,7 +85,13 @@ std::vector<Item> items(const Json &j,bool include_media) {
             auto list=v.find(name);if(list==v.end() || !list->is_array())return;
             for(const auto &tag:*list) {auto label=display_text(text(tag,"tag"),80);if(!label.empty())out.push_back(label);if(out.size()==12)break;}
         };
-        tags("Genre",x.genres);tags("Role",x.cast);
+        tags("Genre",x.genres);tags("Role",x.cast);tags("Director",x.directors);
+        x.studio=display_text(text(v,"studio"),120);x.tagline=display_text(text(v,"tagline"),256);
+        auto rating=v.find("rating");if(rating!=v.end()&&rating->is_number())x.rating=rating->dump();
+        auto roles=v.find("Role");if(roles!=v.end()&&roles->is_array())for(const auto &person:*roles){
+            auto name=display_text(text(person,"tag"),80);if(name.empty())continue;
+            x.credits.push_back({name,display_text(text(person,"role"),80),display_text(text(person,"thumb"),4096)});if(x.credits.size()==32)break;
+        }
         x.thumb = display_text(text(v, "thumb"),4096);
         x.art = display_text(text(v, "art"),4096);
         x.parent_thumb=display_text(text(v,"parentThumb"),4096);x.grandparent_thumb=display_text(text(v,"grandparentThumb"),4096);
@@ -94,7 +100,7 @@ std::vector<Item> items(const Json &j,bool include_media) {
         x.duration = std::max<int64_t>(0,number(v,"duration"));
         x.offset = std::max<int64_t>(0,number(v,"viewOffset"));
         x.watched = number(v, "viewCount") > 0;
-        x.artist=display_text(text(v,"grandparentTitle",text(v,"originalTitle")),256);
+        x.artist=display_text(text(v,"grandparentTitle",x.type=="album"?text(v,"parentTitle",text(v,"originalTitle")):text(v,"originalTitle")),256);
         x.album=display_text(text(v,"parentTitle"),256);
         x.section_id=display_text(text(v,"librarySectionID",number(v,"librarySectionID")>0?std::to_string(number(v,"librarySectionID")):""),128);x.guid=display_text(text(v,"guid"),256);
         if(x.guid.rfind("plex://",0)!=0){auto guids=v.find("Guid");if(guids!=v.end() && guids->is_array())for(const auto &g:*guids){auto id=text(g,"id");if(id.rfind("plex://",0)==0){x.guid=display_text(id,256);break;}}}
@@ -192,7 +198,7 @@ Result Client::call(const std::string &method, const std::string &base, const st
               base + path,
               {{"Accept", "application/json"},
                {"X-Plex-Product", "Plexium"},
-               {"X-Plex-Version", "0.5.0"},
+               {"X-Plex-Version", "0.2.0"},
                {"X-Plex-Client-Identifier", client_id},
                {"X-Plex-Platform", "PlayStation 5"},
                {"X-Plex-Device", "PS5"},

@@ -1,23 +1,19 @@
-# Plex Free Live TV: OMIT from this checkpoint
+# Plex Free Live TV — experimental direct-provider adapter
 
-Decision date: 2026-10-25. This optional service does not block the core personal-server client. No Free Live TV destination, hidden L1/R1 route, fake playback or official-app placeholder is exposed. `src/app/capabilities.h` records the disabled boundary.
+This update replaces the earlier OMIT decision at the user's request. The app now has a Free Live TV (Beta) destination which queries `https://epg.provider.plex.tv/lineups/plex/channels?includeMetadata=1` with the selected profile's Plex token and Plexium's own persisted client identity. It displays supported channels in bounded pages and opens only provider-returned, same-origin `/library/parts/` paths using the existing native VLC adaptive/HLS substrate. Stream paths remain private to Session rather than model snapshots. It does not send personal-server timeline events for cloud channels.
 
-| Evidence | Classification | Consequence |
-|---|---|---|
-| User's official web player can play free channels | User-reported service availability | Does not establish an authorized independent API or PS5 decoder path |
-| PlexStation inspected reference docs/source at a0a5608 keep free cloud TV unavailable | Source/documentation verified | Reuse neither browser secrets nor undocumented endpoints |
-| No current official permission/session/ad/DRM contract was obtained | Unverified | No third-party integration entitlement claim |
-| Plexium native decoder not cross-built or run on PS5 | Untested | No HLS, ad-transition, real audio or channel-switch success claim |
+Explicit DRM/key-system/license markers are rejected, as are foreign stream origins and path traversal. No official-player identity, shared token, third-party stream proxy, region spoofing, ad removal or DRM bypass is used. Provider ad/session behavior is left intact. Account/region/client rejection is displayed as unavailable; it is not replaced with a placeholder stream.
 
-No Plex cloud channel endpoint was probed. No cookies, official-app identities, geographic/device restrictions, DRM, ads or access controls were bypassed. No stream was recorded, cached or redistributed. The official overview and terms were subsequently retrieved as recorded below. An authorized third-party session interface and maintained-community implementation audit remain unverified; missing evidence is not interpreted as a blanket service denial.
+## Evidence and remaining acceptance
 
-Reevaluate only with an authorized maintainable interface and permitted real tests. Required acceptance remains listing/EPG, two allowed channels with real video/audio, correct ad/session behavior, expiry/renewal/reconnect, region/account rejection and cleanup. Synthetic lifecycle tests cannot establish those facts. Personal DVR is separate and not wired into this checkpoint either.
+- Original protocol adapter fixture tests cover channel parsing, selected-profile credentials, same-origin parts, DRM/foreign URL rejection, playback dispatch and absence of personal-server timeline traffic.
+- The existing native static plugin table includes `vlc_entry__adaptive`. This establishes a compiled streaming substrate, not proof of live playback.
+- The cloud worker's direct EPG request was blocked by its egress proxy (CONNECT 403); no personal account credentials were requested or inspected. Required Plex provider/image domains were added to the saved environment draft; saving does not activate network changes.
+- GitHub CI records an optional compatibility report using a fresh anonymous **Plexium** identity. That report distinguishes metadata availability from signed-in profile, native video/audio, ad-transition and session-expiry acceptance. It never requests or records a stream or prints a token.
+- Real signed-in channel availability, two-channel audible playback, switching, ads, expiry/reconnect and account/region rejection still require PS5 testing. A successful fixture/build or anonymous metadata response does not establish these outcomes.
 
-## Official public sources retrieved
+## Public implementation research
 
-On 2026-10-25 the following official pages were successfully retrieved over verified HTTPS:
+Protocol shape was checked against [kptv-fast's Plex provider at 4a28a20](https://github.com/kpirnie/kptv-fast/blob/4a28a206febd17d4fce03cc29f8684bf7126012b/providers/plex_provider.py) and [SlyGuy Plex Live 0.2.4 at d11ff11](https://github.com/matthuisman/slyguy.addons/tree/d11ff115e4db10f8168873ea2c38551ac27c1f90/slyguy.plex.live). No code, artwork, credentials, official-browser headers, proxy URLs or geographic overrides were imported. Plexium uses an original adapter and its existing account/profile authorization. These are community-observed APIs, so Plex may change or reject them.
 
-- [Free Live TV Streaming on Plex Overview](https://support.plex.tv/articles/free-live-tv-streaming-overview/) describes ad-supported channels, supported Plex players, and the distinction between free channels and a user's DVR source. It documents official-player use, not a demonstrated third-party PS5 playback/session/ad contract.
-- [Plex Terms of Service](https://www.plex.tv/about/privacy-legal/plex-terms-of-service/) describes service/content licensing and restrictions. This task does not treat accessible content URLs or ordinary account access as an integration grant.
-
-These sources support retaining the permission/technical gate. They do not establish an independent client entitlement or a working native cloud-TV path. No legal clearance, DRM status or stream compatibility is inferred. A maintained-community implementation audit and explicit authorized real-session testing remain outstanding. Decision stays **OMIT**; core personal-server development continues independently.
+Official service overview: https://support.plex.tv/articles/free-live-tv-streaming-overview/ . Personal-server DVR remains separate from Plex's free cloud channels.

@@ -47,9 +47,9 @@ inline float rail_offset(const std::vector<CardKind> &kinds,int selected,float p
 inline std::vector<std::string> image_candidates(const Item &item,bool landscape=false) {
     std::vector<std::string> result;auto add=[&](const std::string &path){if(!path.empty() && std::find(result.begin(),result.end(),path)==result.end())result.push_back(path);};
     if(item.type=="category" || item.type=="collection"){add(item.art);add(item.parent_art);add(item.grandparent_art);add(item.thumb);add(item.parent_thumb);add(item.grandparent_thumb);}
-    else if(item.type=="episode" || landscape){
-        if(item.thumb!=item.parent_thumb && item.thumb!=item.grandparent_thumb)add(item.thumb);
-        add(item.art);add(item.parent_art);add(item.grandparent_art);add(item.parent_thumb);add(item.grandparent_thumb);add(item.thumb);
+    else if(item.type=="episode" && !landscape){add(item.grandparent_thumb);add(item.parent_thumb);}
+    else if(landscape){
+        add(item.art);add(item.parent_art);add(item.grandparent_art);add(item.thumb);add(item.grandparent_thumb);add(item.parent_thumb);
     }else {add(item.thumb);add(item.parent_thumb);add(item.grandparent_thumb);add(item.art);add(item.parent_art);add(item.grandparent_art);}
     return result;
 }
@@ -76,7 +76,7 @@ inline bool released_date(const std::string &date){
 }
 inline std::string safe_image_identity(std::string value){return clean_image_url(value)?value:std::string();}
 inline Json item_json(const Item &i) {
-    return {{"ratingKey",i.id},{"guid",i.guid},{"key",i.key},{"librarySectionID",i.section_id},{"type",i.type},{"title",i.title},{"summary",i.summary},{"thumb",safe_image_identity(i.thumb)},{"art",safe_image_identity(i.art)},{"parentThumb",safe_image_identity(i.parent_thumb)},{"grandparentThumb",safe_image_identity(i.grandparent_thumb)},{"parentArt",safe_image_identity(i.parent_art)},{"grandparentArt",safe_image_identity(i.grandparent_art)},{"year",i.year},{"duration",i.duration},{"viewOffset",i.offset},{"viewCount",i.watched?1:0},{"parentIndex",i.season},{"index",i.episode},{"grandparentTitle",i.series},{"originallyAvailableAt",i.released},{"addedAt",i.added}};
+    return {{"ratingKey",i.id},{"guid",i.guid},{"key",i.key},{"librarySectionID",i.section_id},{"type",i.type},{"title",i.title},{"summary",i.summary},{"thumb",safe_image_identity(i.thumb)},{"art",safe_image_identity(i.art)},{"parentThumb",safe_image_identity(i.parent_thumb)},{"grandparentThumb",safe_image_identity(i.grandparent_thumb)},{"parentArt",safe_image_identity(i.parent_art)},{"grandparentArt",safe_image_identity(i.grandparent_art)},{"year",i.year},{"duration",i.duration},{"viewOffset",i.offset},{"viewCount",i.watched?1:0},{"parentIndex",i.season},{"index",i.episode},{"grandparentTitle",i.artist.empty()?i.series:i.artist},{"parentTitle",i.album},{"parentRatingKey",i.parent_id},{"grandparentRatingKey",i.grandparent_id},{"originallyAvailableAt",i.released},{"addedAt",i.added}};
 }
 inline std::string hub_semantic(const Json &hub) {
     auto id=compact_key(text(hub,"hubIdentifier",text(hub,"key")))+compact_key(text(hub,"title")),type=text(hub,"type");
