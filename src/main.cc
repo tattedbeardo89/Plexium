@@ -5,6 +5,7 @@
 #include "player.h"
 #include "app/view.h"
 #include "plex/artwork.h"
+#include "plex/diagnostics.h"
 #include "library.h"
 #include "backends/imgui_impl_vulkan.h"
 #include <memory>
@@ -13,6 +14,9 @@
 #include <mutex>
 #include <atomic>
 namespace plex {Transport ps5_transport();}
+// Diagnostic ABI retained for the platform crash reporter; no legacy UI is linked.
+static_assert(std::atomic<unsigned>::is_always_lock_free, "Crash checkpoints require lock-free reads");
+extern "C" unsigned plex_home_last_checkpoint(){return plex::home_last.load(std::memory_order_relaxed);}
 namespace {
 class NativePlayer final:public plexium::PlaybackPort {
  mutable std::mutex mutex;
