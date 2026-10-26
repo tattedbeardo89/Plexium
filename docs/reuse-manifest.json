@@ -1489,6 +1489,10 @@
     {
       "path": "tests/test_transport.py",
       "upstream_sha256": "5012ef9ab6c1a4c9da7a952b88ce9341fa07657efc1e6f3276e3cb190b2fb96c"
+    },
+    {
+      "path": "ci/validate-native.py",
+      "upstream_sha256": "51c3b0e221385a8ed4cae409b1ff33578859fbebfb0542806b274beca7bb0cdc"
     }
   ]
 }

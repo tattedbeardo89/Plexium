@@ -8,6 +8,7 @@ cd "$(dirname "$0")/.."
 mkdir -p artifacts/logs
 WITH_DEMO=0 bash ps5/build-title.sh
 python3 tools/check-package.py dist/PPSA85421
+python3 ci/validate-native.py dist/PPSA85421 "$VLC_PS5_WORK/build-title/llvm-pie.elf" "$PS5_VULKAN/build/host/ps5-native-tool"
 python3 tools/package-title.py dist/PPSA85421 artifacts/Plexium-PPSA85421.zip
 cp "$VLC_PS5_WORK/build-title/llvm-pie.elf" artifacts/Plexium-native-debug.elf
 cp "$VLC_PS5_WORK/build-title/elf-layout.txt" "$VLC_PS5_WORK/build-title/symbols.txt" "$VLC_PS5_WORK/build-title/plexium.map" artifacts/

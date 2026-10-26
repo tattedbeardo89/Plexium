@@ -240,4 +240,5 @@ printf '==> %s: %s (eboot.bin %s bytes, %s; %s imports)\n' "$title_id" "$app" \
 
 # A Windows extraction/FTP client can drop these modes; the ZIP and deployment
 # guide preserve/reapply the intended 755/644 permissions.
+python3 "$repo/tools/collect-licenses.py" "$app/licenses"
 python3 "$repo/tools/package-title.py" "$app"
