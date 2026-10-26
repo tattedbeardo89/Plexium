@@ -1,0 +1,24 @@
+name: Plexium native PS5 build
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  native:
+    # Requires a user-provisioned runner with the audited open toolchain and
+    # separate /opt/plexium-work dependency tree described in docs/BUILD.md.
+    runs-on: [self-hosted, linux, plexium-ps5]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Cross-build and verify native package
+        env:
+          PS5_VULKAN: /opt/PS5_Vulkan
+          VLC_PS5_WORK: /opt/plexium-work
+          BUILD_JOBS: '2'
+        run: bash ci/build-native.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: Plexium-native-${{ github.sha }}
+          path: artifacts/
+          if-no-files-found: error
