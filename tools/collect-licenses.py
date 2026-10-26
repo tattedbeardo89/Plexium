@@ -14,7 +14,7 @@ for name in ['PS5_Vulkan','PS5_PayloadSDK','PS5_Mesa']:
  if p.is_dir():roots.append((name,p))
 index=[]
 for label,base in roots:
- candidates=[repo/'LICENSE',repo/'THIRD_PARTY.md'] if label=='application' else base.rglob('*')
+ candidates=[repo/'LICENSE',repo/'THIRD_PARTY.md'] if label=='application' else sorted(base.rglob('*'))
  for p in candidates:
   if not p.is_file() or p.is_symlink():continue
   relative=p.relative_to(base)

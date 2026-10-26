@@ -44,7 +44,7 @@ TARGET=ps5 NM="$sdk/bin/prospero-nm" APP_MODULES="vlc_entry__ps5http vlc_entry__
 # 2. Our objects, in an archive so --exclude-libs=ALL keeps them out of the
 #    title's exports (the converter refuses application exports).
 bash "$here/compile-shaders.sh"
-build_commit=$(git -C "$repo" rev-parse --verify HEAD 2>/dev/null || echo uncommitted)
+build_commit=$(git -c safe.directory="$repo" -C "$repo" rev-parse --verify HEAD 2>/dev/null || echo uncommitted)
 cflags=(-g -fno-omit-frame-pointer "-DPLEX_BUILD_COMMIT=\"$build_commit\"" -O2 -march=znver2 -Wall -Wno-unused-result -Wno-unused-function
     -DPLEX_PS5 -DVK_NO_PROTOTYPES -DIMGUI_IMPL_VULKAN_USE_VOLK
     -I"$repo/third_party" -I"$repo/src" -I"$repo/third_party/imgui" -I"$repo/third_party/volk" -I"$repo/third_party/stb"

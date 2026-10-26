@@ -16,7 +16,7 @@ Plexium's original code is GPL-3.0-or-later. Selected GPL-compatible code was ad
 | Inter; Selawik; DejaVu and fallback fonts | Adjacent OFL/DejaVu notices in assets/fonts | UI/subtitle fonts and fallback glyphs |
 | libcurl | curl license, system dependency | Host transport only |
 | GnuTLS | LGPL-2.1-or-later, separate source dependency | Verified native TLS |
-| VLC, FFmpeg and other static native dependencies | Each upstream license, ps5/deps/build-deps.sh | Not built/bundled as binaries in this checkpoint |
+| VLC, FFmpeg and other static native dependencies | Each upstream license, ps5/deps/build-deps.sh | Built as native static dependencies; collected notices accompany the installation archive |
 | PS5_Vulkan and pinned payload SDK/Mesa forks | See each pinned source's licenses | External open toolchain dependencies, not proprietary Sony SDK |
 
 Jelly5 b9d45a5b2c1571ee7c220fb541f3a15a0fb8e1f4 (GPL-3.0) was inspected for design and architecture comparison. No Jelly5 source, artwork, screenshots or Jellyfin protocol implementation was imported. Original Plexium branding geometry and generated category SVGs are dedicated under CC0-1.0; bundled fonts retain their licenses.

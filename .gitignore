@@ -3,3 +3,5 @@
 /artifacts/
 /.private/
 __pycache__/
+
+/builds/
