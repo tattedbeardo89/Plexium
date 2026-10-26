@@ -4,6 +4,9 @@ set -euo pipefail
 repo=$(cd -- "$(dirname "$0")/.." && pwd)
 cache=${PLEXIUM_CI_CACHE_DIR:-$repo/.native-cache}
 mkdir -p "$cache/deps" "$cache/plexium-work" "$repo/artifacts/logs"
+# Fetch with the runner's TLS stack before spending time on the compiler build.
+# The container independently rechecks the same pinned checksums before use.
+python3 "$repo/tools/fetch-native-sources.py" "$cache/plexium-work/dl"
 image=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["arch_image"])' "$repo/ci/build-lock.json")
 name=plexium-ci-${GITHUB_RUN_ID:-local}-$$
 finish() {

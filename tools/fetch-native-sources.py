@@ -28,7 +28,10 @@ for name,url in urls.items():
   if not valid(target):raise SystemExit('Cached source checksum mismatch: '+name)
   print('Verified cached',name,flush=True);continue
  temp=destination/(name+'.part')
- result=subprocess.run(['curl','--fail','--location','--silent','--show-error','--proto','=https','--proto-redir','=https',url,'-o',str(temp)])
+ result=subprocess.run(['curl','--fail','--location','--silent','--show-error',
+                        '--retry','4','--retry-all-errors','--retry-delay','3',
+                        '--connect-timeout','30','--max-time','300',
+                        '--proto','=https','--proto-redir','=https',url,'-o',str(temp)])
  if result.returncode:
   failures.append(name);print('BLOCKED:',name,flush=True);continue
  if not valid(temp):raise SystemExit('Downloaded source checksum mismatch: '+name)
