@@ -1,6 +1,6 @@
 # Coexistence and hardware acceptance
 
-The real native installation archive is `artifacts/Plexium-PPSA85421.zip`; ELF, signed SELF and package checks passed. **Firmware 13.40, kstuff Lite, ShadowMountPlus launch and actual playback are still untested.** Do not copy host executables, loose object files or development/source archives to the console.
+Download the [Plexium PS5 installation ZIP](https://github.com/tattedbeardo89/Plexium/releases/download/untagged-4ce07098e7c8119bd150/Plexium-PPSA85421.zip) from the [draft prerelease](https://github.com/tattedbeardo89/Plexium/releases/tag/untagged-4ce07098e7c8119bd150); sign in to GitHub with repository access. [Checksums](https://github.com/tattedbeardo89/Plexium/releases/download/untagged-4ce07098e7c8119bd150/SHA256SUMS) and the [matching debug ELF](https://github.com/tattedbeardo89/Plexium/releases/download/untagged-4ce07098e7c8119bd150/Plexium-native-debug.elf) are attached. Extract the ZIP to obtain the complete `PPSA85421` title folder; this is a homebrew folder package, not a retail PKG. Native ELF, signed SELF, package and independent GitHub download checks passed. **Firmware 13.40, kstuff Lite, ShadowMountPlus launch and actual playback are still untested.** Do not copy host executables, loose object files or development/source archives to the console.
 
 After an actual package passes `tools/check-package.py` and the native tool's SELF inspection:
 

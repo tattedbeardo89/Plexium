@@ -62,6 +62,11 @@ jobs:
               matches=list(Path('downloaded').rglob(name))
               assert len(matches)==1, name
               (Path('artifacts')/name).symlink_to(matches[0].resolve())
+          # Keep the exact native payloads, with the current delivery guidance.
+          for name in ['INSTALLATION.md','DELIVERY.md']:
+              target=Path('artifacts')/name
+              target.unlink()
+              target.symlink_to((Path('docs')/name).resolve())
           PY
           bash ci/upload-draft.sh
       - name: Retain independent download verification

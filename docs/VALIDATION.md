@@ -19,7 +19,7 @@ Plexium is a **real signed, package-verified native development checkpoint**, no
 | Native installation ZIP | PASS | Correct PPSA85421 identity, PNG/DDS assets, 100 notices, CRC, 755/644 modes, matching payload; repeated packaging was byte-identical |
 | Fresh native container and image archive | PASS | Compiler/CA access, HTTPS to GitHub, prepared image ID, archive checksum; no live process assumed to survive |
 | Host CLI smoke/restart | PASS | Private directory 0700, identity file 0600, identity retained; no account linked |
-| Remote CI / PR | PARTIAL | [Host CI passed](https://github.com/tattedbeardo89/Plexium/actions/runs/40264496421); [PR #1](https://github.com/tattedbeardo89/Plexium/pull/1) is open. Native CI delivery is not yet verified; no merge/public release. |
+| Remote CI / PR | PASS | [Native build and four uploads](https://github.com/tattedbeardo89/Plexium/actions/runs/40347283259); [independent GitHub downloads/identity checks](https://github.com/tattedbeardo89/Plexium/actions/runs/40351502414); PR #1 remains open, with no merge/public release. |
 | Live Plex / physical PS5 / Windows PowerShell | UNRUN | No user account, PMS media, console or Windows execution was used |
 
 Logs are in `artifacts/logs`. The final host, sanitizer, native-object, native-syntax, native-transport and source-verification logs are separate. Early sanitizer attempts used stale objects after a header changed during a build; a clean rebuild resolved that mismatch, and the final normal/instrumented workflows passed after the final source changes. Assertions were retained. No TLS, package signature, SDK checksum, runtime digest or dependency checksum was bypassed.
@@ -36,8 +36,19 @@ The vertical slice has synthetic session/playback-dispatch coverage and a real c
 
 Broader requirements remain incomplete: profile avatars in the new view, full sorting/filtering/pagination, grouped global search, full cast/related/collection/season layouts, configurable hero policy, Watchlist, dedicated music/audiobooks, personal DVR, transcode negotiation, chapter/next-episode UX, durable timeline reconciliation, screensaver, renderer stress/performance and console artwork acceptance. Some supporting protocol helpers are present but do not establish working product features. Free cloud Live TV is intentionally omitted.
 
-## Native artifact identity
+## Original local native artifact identity
 
 Native source commit: `36abbd8b5a9bbf9c0afda47af1142ec702669ab2`. ELF build ID: `169ce79e246e3e418ac7bfd49aefbab8ac17f9aa`. The full commit was found in the debug ELF. SELF SHA-256: `c7492c38e541159b59c00c2c968b651deb246747715a6a4c3357e2c70525192b`. Installation ZIP SHA-256: `1cd9500d2f0b58c8c5952782e96d0ce8c1b266c54afe4e184c29ea0ba22374ed`. Debug ELF SHA-256: `601f3ee3a682d5da6502b6715658069ced5f50b0691c590745b74273ffb3175d`.
 
 The initial native link failed because the retained platform crash handler expected a bridge from the old UI. The new entry implements the real atomic checkpoint bridge. A later provenance check caught an unversioned label caused by container Git ownership; the exact-checkout safe-directory read fixed it, and the final native rebuild/package validation passed. These corrected build issues are not physical PS5 test results.
+
+## Published GitHub candidate
+
+Native source: `2fbce98d89f830bd0df67f321fa7262296b6f643`. ELF build ID: `3cf535abec047e9cc242864ec37d24ecf2f54268`. [Native CI](https://github.com/tattedbeardo89/Plexium/actions/runs/40347283259) and [independent download verification](https://github.com/tattedbeardo89/Plexium/actions/runs/40351502414) passed. The draft release remains private to authorized GitHub users, unpublished and marked prerelease. GitHub release asset digests match the downloaded Actions files.
+
+- `Plexium-PPSA85421.zip`: SHA-256 `4fa600c9066ca0759e6a480063222725203a2195e14ef4096ba680242f8929d0`
+- `Plexium-native-debug.elf`: SHA-256 `554a7d5e55e7a61ecd5b1e9ac2873d00d373ec39dc474d6487af6a3df46412d2`
+- `Plexium-native-source.tar.gz`: SHA-256 `c5d1d17e50e642511e9cc04eda946e0ae368786f0c87cf9368c13380c83fcadb`
+- `Plexium-source.bundle`: SHA-256 `b2ddef5df0f020abb24faa96929c1488c413d173b7c5913a532d30174b224bce`
+
+Physical PS5 firmware 13.40/live Plex acceptance remains unrun. The earlier local hashes above describe a separate historical candidate.
