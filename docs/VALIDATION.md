@@ -19,7 +19,7 @@ Plexium is a **real signed, package-verified native development checkpoint**, no
 | Native installation ZIP | PASS | Correct PPSA85421 identity, PNG/DDS assets, 100 notices, CRC, 755/644 modes, matching payload; repeated packaging was byte-identical |
 | Fresh native container and image archive | PASS | Compiler/CA access, HTTPS to GitHub, prepared image ID, archive checksum; no live process assumed to survive |
 | Host CLI smoke/restart | PASS | Private directory 0700, identity file 0600, identity retained; no account linked |
-| Remote CI / PR | UNRUN | Workflow files are local; no push/PR/merge/public release |
+| Remote CI / PR | PARTIAL | [Host CI passed](https://github.com/tattedbeardo89/Plexium/actions/runs/40264496421); [PR #1](https://github.com/tattedbeardo89/Plexium/pull/1) is open. Native CI delivery is not yet verified; no merge/public release. |
 | Live Plex / physical PS5 / Windows PowerShell | UNRUN | No user account, PMS media, console or Windows execution was used |
 
 Logs are in `artifacts/logs`. The final host, sanitizer, native-object, native-syntax, native-transport and source-verification logs are separate. Early sanitizer attempts used stale objects after a header changed during a build; a clean rebuild resolved that mismatch, and the final normal/instrumented workflows passed after the final source changes. Assertions were retained. No TLS, package signature, SDK checksum, runtime digest or dependency checksum was bypassed.
