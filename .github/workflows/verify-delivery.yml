@@ -51,8 +51,10 @@ jobs:
           # Restore the candidate tag after older clients omitted it in a PATCH.
           gh api "repos/$GITHUB_REPOSITORY/releases/423826092" > draft.json
           python3 -c 'import json; r=json.load(open("draft.json")); assert r["draft"] is True, "Refuse to change a public release"'
-          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/423826092" \
-            -f tag_name=v0.1.0-native-candidate.1 -F draft=true -F prerelease=true --silent
+          if [[ $(python3 -c 'import json; print(json.load(open("draft.json"))["tag_name"])') != v0.1.0-native-candidate.1 ]]; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/423826092" \
+              -f tag_name=v0.1.0-native-candidate.1 -F draft=true -F prerelease=true --silent
+          fi
           mkdir -p artifacts
           python3 - <<'PY'
           from pathlib import Path
