@@ -17,33 +17,38 @@ Vulkan-Headers is a dependency checkout, not another product repository. Inspect
 
 The actual shared native view renders to `build/{welcome,linking,home,library,details,profiles}.png`. These frames use synthetic metadata. `build/plexium-cli PRIVATE_DIRECTORY` runs the real host Plex transport and session orchestration; `link` shows a device code, `poll` checks authorization, then `profile ID`, `server ID`, `library ID`, `details ID` and `children ID` drive the same protocol session. Protected PIN entry requires an interactive terminal and disables echo. The tool refuses to simulate native playback. Do not give tokens through command arguments or chat. Live operation needs the configured domains and the user's own account authorization; it was not performed during this task.
 
-## Native preparation, checks and remaining gate
+## Verified native build
 
-Read [native preparation evidence](NATIVE-PREPARATION.md). The pinned open SDK, converter, byte-identical verified runtime, patched release RADV and nineteen target dependency recipes are prepared. Seven Plexium sources cross-compile with the real `-target x86_64-sie-ps5` wrapper. This is not a linked/signed application. The selected source dependencies are all checksum-pinned; twenty-one of twenty-two archives are verified. FreeType remains unavailable through the current runtime's permitted destinations. Its downstream HarfBuzz/libass/Blu-ray chain and static VLC build remain incomplete.
+Read [native preparation evidence](NATIVE-PREPARATION.md). All 22 dependency archives passed published checksum checks; all 23 prerequisite recipes, the open SDK, byte-identical runtime, patched release RADV and static VLC built. Plexium's new application compiled and linked, its homebrew SELF passed integrity inspection, and the complete package passed identity, artwork, plugin, CRC and mode checks. This does not establish firmware compatibility or real playback.
 
-The directly launched Arch toolchain is saved as `/workspace/deps/plexium-ps5-prepared.tar`, with a checksum and expected image ID. It contains signed packages, without baked session proxy values or session CA material. The Dockerfile's signed-package step worked, but BuildKit failed on a later filesystem layer; the tested direct-container fallback is retained. Native build state is under `/workspace/deps` and `/workspace/plexium-work`, outside product sources. Do not delete those caches or repeat expensive valid builds unnecessarily.
+Outputs:
 
-Start a fresh process with current proxy settings and CA trust:
+- `artifacts/Plexium-PPSA85421.zip`: complete `PPSA85421` homebrew folder, **not a retail PKG**.
+- `artifacts/Plexium-native-debug.elf`, symbol/map reports: matching unstripped native ELF and diagnostics.
+- `artifacts/native-validation.json`, `artifacts/SHA256SUMS`: exact source stamp, ELF build ID and hashes.
+- `artifacts/Plexium-native-source.tar.gz` and `Plexium-source.bundle`: application history, pinned toolchain source and verified dependency inputs.
+
+The native application was built from `36abbd8b5a9bbf9c0afda47af1142ec702669ab2`. Subsequent documentation/source-kit changes do not change its C++ sources. The first link exposed one missing retained crash-checkpoint bridge; it was supplied by the new entry point. Container Git reads now trust only the exact mounted checkout, so the built source stamp is verified in the debug ELF. No placeholder executable or host binary is substituted.
+
+## Start native development
+
+The pinned Arch toolchain image is retained as `/workspace/deps/plexium-ps5-prepared.tar` with a checksum. It has signed packages and no baked session proxy values or session CA material. The Dockerfile package step succeeded but BuildKit failed preparing a later filesystem layer; the tested direct-container fallback is retained. Source/build caches are under `/workspace/deps` and `/workspace/plexium-work`.
 
 ```sh
 cd /workspace/Plexium
 native_session=$(bash ci/start-native-container.sh)
-docker exec "$native_session" bash ci/check-native-objects.sh
-# When finished with the process you created:
+docker exec -e PS5_VULKAN=/workspace/deps/PS5_Vulkan -e VLC_PS5_WORK=/workspace/plexium-work "$native_session" bash ci/build-native.sh
+# Stop only the process you created when finished:
 docker stop "$native_session"
 ```
 
-The startup helper was exercised using a fresh container, compiler discovery, current-CA HTTPS to GitHub and image-archive checksum verification. It does not rely on a process surviving publication. In a fresh task, restoration of the source checkout/snapshot must still be verified; no fresh-task restoration has been claimed.
+The helper creates a fresh process with current proxy settings and a read-only CA mount and checks the prepared image ID. Fresh-container compiler/HTTPS checks, image-archive integrity, cached prerequisite bootstrap and the actual native title build were exercised. Retained dependencies do not require rebuilding for ordinary application changes. Live processes must not be assumed to survive publication. Restoration in a new cloud task has not been independently verified; preserve the source bundle because the local branch has not been pushed.
 
-To unblock the final native dependency chain, review/save the draft's network requirement for `ftp.cc.uoc.gr`, the mirror supplied by Savannah for FreeType 2.13.3. Automatic Savannah/SourceForge mirror redirects also hit denied hosts, so the FreeType URL is pinned to that specific upstream mirror. Existing allowlisted VideoLAN mirrors do not contain this exact version. Never change the expected checksum, disable TLS or substitute an unverified archive. If the user supplies the exact official archive securely through an authorized route, verify the already recorded digest before use.
+For a full dependency refresh use `ci/bootstrap-sdk.sh`, `ci/bootstrap-native-runtime.sh` and the dependency recipes, respecting the pinned inputs. `ci/finish-native-build.sh` performs the font-dependent prerequisites, static VLC and full title packaging; it was executed through the real build. Do not run it merely to rebuild UI code, since those dependencies already exist. The source fetcher validates both cached and new archives. Never disable TLS/signatures or change expected hashes to get past a failure.
 
-Once actual access works, start a fresh native container and run `docker exec "$native_session" bash ci/finish-native-build.sh`. It verifies all archives, builds only the four missing dependency recipes, configures static VLC and invokes `ci/build-native.sh`. That final resume script is shell-checked but **blocked/unexecuted past the missing source**. The full title attempt currently fails on missing `build-vlc-ps5/src/.libs/libvlccore.a`.
+Package ZIP timestamps derive from SOURCE_DATE_EPOCH or the source commit. Repackaging the same payload/source produced an identical ZIP checksum. This verifies archive repeatability, not a second cold rebuild of every native dependency.
 
-The native recipe produces `dist/PPSA85421` with a signed homebrew SELF, not a retail PKG. On successful full build, `ci/build-native.sh` inspects it, packages `artifacts/Plexium-PPSA85421.zip`, retains the matching native debug ELF/maps/imports and writes SHA256SUMS. Those complete application artifacts do not exist yet. Do not install target object files or host binaries on the console.
-
-`ci/build-lock.json` and `ci/source-checksum-provenance.json` record the exact toolchain/source pins. Native scripts retain checks on SDK, runtime and dependency archives. Original dependency versions are unchanged; NASM/zlib archive compression/source mirror choices were adjusted only where published checksums were available. Complete corresponding source and all dependency notices are required before distributing a final native binary.
-
-Host CI is committed. The optional native workflow is manual and requires a user-provisioned self-hosted `plexium-ps5` runner with its prepared dependencies. Neither workflow was pushed or executed remotely; no CI links are claimed.
+Host and manual self-hosted native workflow files are committed locally. Neither workflow was pushed or executed remotely. A future native runner needs the prepared dependencies; no remote CI/PR result is claimed.
 
 ## Local publication
 

@@ -2,7 +2,7 @@
 
 A cinematic Plex experience for PlayStation 5.
 
-**Development checkpoint: shared native UI and Plex session foundation, host tested. A PS5 binary has not been built or verified.** This is an independent project, not an in-place PlexStation rebrand. PlexStation remains the installed fallback.
+**Native development checkpoint: host tested, cross-compiled, linked, signed and package-verified. Physical PS5 and live Plex acceptance remain pending.** This is an independent project, not an in-place PlexStation rebrand. PlexStation remains the installed fallback.
 
 Unofficial Plex client; not affiliated with or endorsed by Plex, Sony or VideoLAN.
 
@@ -25,7 +25,7 @@ This executes application/protocol/auth/Home fixtures, real local HTTP/TLS scena
 
 ## Status and delivery
 
-The first end-to-end **fixture** slice reaches playback dispatch; real playback remains unverified. The reference decoder does not turn a fixture into a working PS5 build. The SDK/runtime/driver and seven target object files are verified; full linking is blocked on the remaining FreeType download and dependent static VLC build. Do not install a host binary on the console.
+The first end-to-end **fixture** slice reaches playback dispatch. A real native PS5 title has now compiled and passed ELF/SELF/package checks; real console playback remains unverified. The install archive is `artifacts/Plexium-PPSA85421.zip`, with matching debug ELF and a native source kit. See [delivery](docs/DELIVERY.md) and follow the coexistence checks before hardware testing. Host binaries and loose object files are not console applications.
 
 Many requested phases remain incomplete: full metadata/related/cast pages, sort/filter/pagination, Watchlist, dedicated music/audiobooks, DVR, profile avatars in the new view, expanded playback negotiation, robust progress reconciliation, screensaver and hardware performance/acceptance. Free cloud Live TV is deliberately omitted. See [validation](docs/VALIDATION.md), [reference audit](docs/REFERENCE-AUDIT.md), [architecture](docs/ARCHITECTURE.md), [installation/rollback](docs/INSTALLATION.md), [Free Live TV decision](docs/FREE-LIVE-TV.md) and [licensing](THIRD_PARTY.md).
 

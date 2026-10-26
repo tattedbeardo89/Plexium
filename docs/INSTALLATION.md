@@ -1,6 +1,6 @@
 # Coexistence and hardware acceptance
 
-There is currently **no verified installable Plexium native binary**. Do not copy host executables or metadata-only folders to the PS5. Firmware 13.40, kstuff Lite and ShadowMountPlus compatibility is pending a real native build and device testing.
+The real native installation archive is `artifacts/Plexium-PPSA85421.zip`; ELF, signed SELF and package checks passed. **Firmware 13.40, kstuff Lite, ShadowMountPlus launch and actual playback are still untested.** Do not copy host executables, loose object files or development/source archives to the console.
 
 After an actual package passes `tools/check-package.py` and the native tool's SELF inspection:
 
