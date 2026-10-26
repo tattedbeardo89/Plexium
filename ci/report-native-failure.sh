@@ -16,6 +16,6 @@ body=(r.get('body') or '').split(marker)[0]
 log=Path('artifacts/logs/hosted-native.log')
 tail='\n'.join(log.read_text(errors='replace').splitlines()[-100:])[-20000:] if log.exists() else 'Native build did not start.'
 body+=marker+f"\nNative build diagnostics; no new binary delivery is claimed. Run: https://github.com/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['PLEXIUM_DIAGNOSTIC_RUN_ID']}\n\n```text\n{tail.replace('```','~~~')}\n```\n"
-Path('artifacts/draft-failure-update.json').write_text(json.dumps({'body':body,'draft':True,'prerelease':True}))
+Path('artifacts/draft-failure-update.json').write_text(json.dumps({'body':body,'tag_name':'v0.1.0-native-candidate.1','draft':True,'prerelease':True}))
 PY
 gh api --method PATCH "repos/$repo/releases/$release" --input artifacts/draft-failure-update.json --silent
