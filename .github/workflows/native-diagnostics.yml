@@ -27,4 +27,11 @@ jobs:
           fi
           mkdir -p artifacts/logs
           gh run download "$run" --repo "$GITHUB_REPOSITORY" --pattern 'Plexium-failure-*' --dir artifacts/logs
+          python3 - <<'PY'
+          from pathlib import Path
+          logs=list(Path('artifacts/logs').rglob('hosted-native.log'))
+          message='\n'.join(logs[0].read_text(errors='replace').splitlines()[-70:])[-16000:] if logs else 'No hosted-native.log in downloaded failure artifact.'
+          message=message.replace('%','%25').replace('\r','%0D').replace('\n','%0A')
+          print('::warning title=Previous native build log::'+message)
+          PY
           bash ci/report-native-failure.sh "$run"
