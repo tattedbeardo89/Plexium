@@ -1,0 +1,30 @@
+name: Retrieve native build diagnostics
+on:
+  workflow_dispatch:
+  push:
+    branches: ['feature/**']
+    paths: ['.github/workflows/native-diagnostics.yml']
+permissions:
+  contents: write
+  actions: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Retrieve the most recent failed native build's uploaded log
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          run=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/native.yml/runs?status=failure&per_page=1" --jq '.workflow_runs[0].id // empty')
+          if [[ -z $run ]]; then
+            echo 'No failed native run to inspect.'
+            exit 0
+          fi
+          mkdir -p artifacts/logs
+          gh run download "$run" --repo "$GITHUB_REPOSITORY" --pattern 'Plexium-failure-*' --dir artifacts/logs
+          bash ci/report-native-failure.sh "$run"
