@@ -32,7 +32,7 @@ with tempfile.TemporaryDirectory(prefix='plexium-source-kit-',dir=art) as tempor
  for name in ['PS5_Vulkan','PS5_PayloadSDK','PS5_Mesa']:
   source=deps/name;sha=pins[name];bare=Path(temporary)/(name+'.git')
   subprocess.run(['git','init','--bare','--quiet',str(bare)],check=True)
-  subprocess.run(['git','-C',str(bare),'fetch','--quiet','--no-tags','--depth=1','file://'+str(source),sha],check=True)
+  subprocess.run(['git','-C',str(bare),'fetch','--quiet','--no-tags','--depth=1','--update-shallow','file://'+str(source),sha],check=True)
   subprocess.run(['git','-C',str(bare),'update-ref','refs/heads/pinned',sha],check=True)
   subprocess.run(['git','-C',str(bare),'symbolic-ref','HEAD','refs/heads/pinned'],check=True)
   (bare/'FETCH_HEAD').unlink(missing_ok=True)

@@ -1,0 +1,11 @@
+# GitHub delivery
+
+The implementation is reviewed through the feature branch and PR against the initially empty main baseline; no implementation history was rewritten and no PR was automatically merged.
+
+The native workflow uses an ordinary Ubuntu 24.04 GitHub-hosted runner with Docker. It mounts the current checkout and its own dependency cache into stable container paths, prepares the pinned signed Arch packages, installs the open SDK with its original checksum, verifies source archives, builds RADV/static VLC and the native title, inspects the signed SELF/package, and generates matching source/debug identities. It does not require the Codex machine, its prepared image or its filesystem caches. Dependency caches are keyed by the build/source pins and recipes. Upload failures fail the job; four separate Actions artifacts retain installation, debug ELF, source inputs and delivery/checksums for 90 days subject to repository limits.
+
+Relevant feature-branch pushes trigger the native workflow. `workflow_dispatch` is declared; GitHub's manual UI/dispatch availability may require the workflow to reach the default branch after review. The implementation PR remains unmerged. No default-branch implementation merge is used to bypass that review.
+
+A draft prerelease is reserved for the candidate. The cloud machine's Git/API authentication can publish source and create that draft, but the distinct release-upload host returned HTTP 401. The native workflow uses GitHub's own repository-scoped token to attach its verified outputs to that existing draft. It never publishes the draft, and leaves an already public release untouched. The rebuilt candidate records the workflow's exact source commit; it must not be confused with the earlier local candidate's 36abbd8 source stamp. Both derive from the preserved implementation history.
+
+Draft release assets require signing into an account with access. Actions artifact downloads normally require GitHub sign-in too. Physical PS5 firmware 13.40, live Plex, artwork registration and the remaining broader features are still pending. Source, installation and symbols must be matched using native-validation.json and SHA256SUMS rather than a filename alone.
