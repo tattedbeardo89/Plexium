@@ -1,3 +1,9 @@
+# Updating an existing Plexium installation
+
+For an installed Plexium `PPSA85421`, close the app, back up its app folder and private `/data/plexium-client` data, and replace only the app folder using the complete new installation ZIP through your existing supported launcher procedure. Keep private data in place so the device identity and account are retained. Keep the original 0.1 package and matching symbols for rollback. Do not copy source/debug archives to the console or merge old and new executable/module files.
+
+An existing title is an expected update only after you verify it is your Plexium installation. The fresh-install collision checks below apply if the title belongs to another app. Leave PlexStation `PPSA85301` and its data untouched. No hardware files have been changed automatically.
+
 # Coexistence and hardware acceptance
 
 Download the [Plexium PS5 installation ZIP](https://github.com/tattedbeardo89/Plexium/actions/runs/40347283259/artifacts/12664550234) (or select the native candidate on the [releases page](https://github.com/tattedbeardo89/Plexium/releases)); sign in to GitHub with repository access. [Checksums](https://github.com/tattedbeardo89/Plexium/actions/runs/40347283259/artifacts/12664630123) and the [matching debug ELF](https://github.com/tattedbeardo89/Plexium/actions/runs/40347283259/artifacts/12663277831) are attached. For Actions downloads, extract the artifact wrapper first, then extract the contained Plexium installation ZIP to obtain the complete `PPSA85421` title folder; this is a homebrew folder package, not a retail PKG. Native ELF, signed SELF, package and independent GitHub download checks passed. **Firmware 13.40, kstuff Lite, ShadowMountPlus launch and actual playback are still untested.** Do not copy host executables, loose object files or development/source archives to the console.
