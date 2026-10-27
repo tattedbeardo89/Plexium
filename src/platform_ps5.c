@@ -30,8 +30,6 @@
 /* Where the eboot is loaded, and a bound on its code for backtraces. */
 #include "crash_termination.h"
 extern unsigned plex_home_last_checkpoint(void);
-#define EBOOT_BASE 0x400000ULL
-#define EBOOT_END 0x10000000ULL
 
 int sceKernelSendNotificationRequest(int device, void *request, size_t size, int blocking);
 int sceSystemServiceHideSplashScreen(void);
@@ -56,9 +54,7 @@ VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vk_icdGetInstanceProcAddr(VkInstance in
 
 /* ---- start-up ---------------------------------------------------------- */
 
-/* The app's folder. "/app0" inside the sandbox; once a jailbreak daemon lifts
- * the sandbox, paths start at the console's real root, where the same folder
- * has another name (see find_app_dir). */
+/* Launcher-provided title folder. Never change sandbox identity at startup. */
 static char app_dir[256] = APP_DIR;
 static bool full_access;
 
@@ -83,74 +79,37 @@ static void write_str(const char *s)
         (void)!write(crash_file_fd, s, strlen(s));
 }
 
-/* The PS5's context is FreeBSD's with the machine context 0x30 bytes further
- * on: rbp at +0x88, rip at +0xe0, rsp at +0xf8. Look addresses up with
- * llvm-addr2line -f -C -e builds/llvm-pie-<sha>.elf 0x<eboot+>. */
+/* Fatal reporting must not acquire stdio locks, open files, inspect guessed
+ * register offsets or scan a possibly corrupt stack. Descriptors are prepared
+ * before handlers are installed. */
+static void crash_number(const char *label, uint64_t value)
+{
+    char digits[17];
+    static const char hex[] = "0123456789abcdef";
+    for (int i=15; i>=0; --i) { digits[i]=hex[value&15]; value>>=4; }
+    digits[16]=0;
+    write_str(label);write_str(digits);write_str("\n");
+}
 static void exit_returned(void){write_str("*** fatal exit bridge returned; terminal wait, not application recovery\n");}
-
 static void crash_handler(int sig, siginfo_t *info, void *context)
 {
     static volatile sig_atomic_t in_handler;
-    char buf[200];
-    if (in_handler)
-        crash_terminate(128+sig,_exit,exit_returned);
-    in_handler = 1;
-    char crash_path[300];
-    snprintf(crash_path, sizeof(crash_path), "%s/vlc-crash.txt", app_dir);
-    crash_file_fd = open(crash_path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
-    write_str("*** build " PLEX_BUILD_COMMIT " title PPSA85421; context offsets require device validation\n");
-    snprintf(buf,sizeof(buf),"*** pid=%d\n",(int)getpid());write_str(buf);
-    const uint64_t *ctx = (const uint64_t *)context;
-    uint64_t rip = ctx ? ctx[0xe0 / 8] : 0, rsp = ctx ? ctx[0xf8 / 8] : 0;
-    bool executable_rip = rip>=EBOOT_BASE && rip<EBOOT_END;
-    snprintf(buf, sizeof(buf),
-             "\n*** Plexium crashed: signal %d, fault address %p, thread %p\n"
-             "*** raw rip %#lx (fixed-base subtraction %#lx; not a validated module offset) rsp %#lx\n",
-             sig, info ? info->si_addr : NULL, (void *)pthread_self(), (unsigned long)rip,
-             (unsigned long)(rip - EBOOT_BASE), (unsigned long)rsp);
-    write_str(buf);
-    snprintf(buf,sizeof(buf),"*** signal code %d (no syscall identification inferred)\n",info ? info->si_code : 0);
-    write_str(buf);
-    char toast[128];
-    if(executable_rip)
-        snprintf(toast,sizeof(toast),"Plexium crashed: signal %d, candidate eboot+%#lx",sig,(unsigned long)(rip-EBOOT_BASE));
-    else
-        snprintf(toast,sizeof(toast),"Plexium crashed: signal %d outside assumed eboot range; see crash log",sig);
-    write_str(executable_rip ? "*** RIP is in assumed eboot range; confirm load base before symbolizing\n" : "*** RIP is OUTSIDE assumed eboot range; do not symbolize subtraction as eboot\n");
-    /* Avoid notification runtime calls while handling a native fatal signal. */
-    (void)toast;
-    // Raw stack scanning can recursively fault; preserve register/phase evidence
-    // instead of dereferencing an unvalidated stack address in a signal handler.
-    /* The log lines still in the buffer (the last 200 ms), after the report:
-     * the report is already safe if this blocks (a crash inside stdio). */
-    write_str("*** log lines still buffered at the crash:\n");
-    snprintf(buf,sizeof(buf),"*** last Home checkpoint H%02u; original signal is recorded above\n",plex_home_last_checkpoint());write_str(buf);
-    /* Buffered stdio may hold a lock on the faulting thread; direct writes above survive. */
-    if (crash_fd >= 0)
-        fsync(crash_fd);
-    if (crash_file_fd >= 0)
-        fsync(crash_file_fd);
+    (void)context; // Native context layout has not been validated on this firmware.
+    if (in_handler) crash_terminate(128+sig,_exit,exit_returned);
+    in_handler=1;
+    write_str("*** Plexium fatal signal; build " PLEX_BUILD_COMMIT "\n");
+    crash_number("signal (hex): ",(uint64_t)sig);
+    if(info) {
+        crash_number("signal code (hex): ",(uint64_t)(int64_t)info->si_code);
+        crash_number("fault address: ",(uintptr_t)info->si_addr);
+    }
+    crash_number("last Home checkpoint: ",plex_home_last_checkpoint());
     crash_terminate(128+sig,_exit,exit_returned);
 }
 
-/* " name " of each import left unresolved: optional calls check it first. */
-static char unresolved[2048] = " ";
-/* the video decoder's import slots (imports.txt), checked once its library
- * is loaded */
-#define VDEC_SLOTS 16
-static struct {
-    unsigned long offset;
-    char name[48];
-} vdec_slots[VDEC_SLOTS];
-static int vdec_slot_count;
-
-static bool import_resolved(const char *name)
-{
-    char key[160];
-    snprintf(key, sizeof(key), " %s ", name);
-    return strstr(unresolved, key) == NULL;
-}
-
+#include "native_imports.h"
+#include "startup_log.h"
+/* Only the linked GOT decides whether an optional native import is resolved. */
 /* settings.txt's "key=value" at start (read before full access: /app0 may
  * be gone after it). */
 static int boot_setting(const char *key, int fallback)
@@ -180,28 +139,32 @@ void vlc_ps5_vdec_prepare(void) __attribute__((weak));   /* ps5/modules/ps5vdec.
 void vlc_ps5_vdec_probe(const char *when) __attribute__((weak));
 #define SYSMODULE_VIDEODEC2 207
 static bool vdec_ready;
-static double jb_wait = 2.5;   /* seconds the Helper has to answer */
 
 static void load_video_decoder(void)
 {
     /* (the decoder's own functions only get their addresses with the
      * library: they're checked after loading it, below) */
-    if (!import_resolved("sceSysmoduleLoadModule")) {
+    if (!PLEX_NATIVE_IMPORT_READY(sceSysmoduleLoadModule)) {
         fprintf(stderr, "VLC-PS5: hardware decoding off: sceSysmoduleLoadModule unresolved\n");
         return;
     }
     int rc = sceSysmoduleLoadModule(SYSMODULE_VIDEODEC2);
     vdec_ready = rc == 0;
-    /* now its functions must have their addresses (imports.txt known): an
-     * empty one would be a jump to 0 */
-    for (int i = 0; vdec_ready && i < vdec_slot_count; i++) {
-        if (*(const uint64_t *)(EBOOT_BASE + vdec_slots[i].offset) == 0) {
-            fprintf(stderr, "VLC-PS5: %s still unresolved after loading the library\n", vdec_slots[i].name);
-            vdec_ready = false;
-        }
+    if (vdec_ready) {
+#define REQUIRE_DECODER_IMPORT(name) vdec_ready = vdec_ready && PLEX_NATIVE_IMPORT_READY(name)
+        REQUIRE_DECODER_IMPORT(sceVideodec2QueryComputeMemoryInfo);
+        REQUIRE_DECODER_IMPORT(sceVideodec2AllocateComputeQueue);
+        REQUIRE_DECODER_IMPORT(sceVideodec2QueryDecoderMemoryInfo);
+        REQUIRE_DECODER_IMPORT(sceVideodec2CreateDecoder);
+        REQUIRE_DECODER_IMPORT(sceVideodec2DeleteDecoder);
+        REQUIRE_DECODER_IMPORT(sceVideodec2Decode);
+        REQUIRE_DECODER_IMPORT(sceVideodec2Flush);
+        REQUIRE_DECODER_IMPORT(sceVideodec2Reset);
+        REQUIRE_DECODER_IMPORT(sceVideodec2GetPictureInfo);
+#undef REQUIRE_DECODER_IMPORT
     }
-    fprintf(stderr, "VLC-PS5: video decoder library %#x: hardware decoding %s (%d functions checked)\n",
-            (unsigned)rc, vdec_ready ? "on" : "off", vdec_slot_count);
+    fprintf(stderr, "Plexium: video decoder load=%#x imports=%s\n",
+            (unsigned)rc, vdec_ready ? "ready" : "unavailable");
     /* its compute queue now too, while still in the sandbox */
     if (vdec_ready && vlc_ps5_vdec_prepare)
         vlc_ps5_vdec_prepare();
@@ -214,231 +177,10 @@ int vlc_ps5_vdec_available(void)
     return vdec_ready;
 }
 
-/* Every import the console left unresolved (a call would jump to 0), in one
- * report: imports.txt lists each GOT slot's offset and symbol. */
-static void report_unresolved_imports(void)
-{
-    FILE *f = fopen(APP_DIR "/imports.txt", "r");
-    if (!f) {
-        fprintf(stderr, "VLC-PS5: can't read imports.txt, errno %d\n", errno);
-        return;
-    }
-    char name[128], list[400] = "";
-    unsigned long offset;
-    int checked = 0, missing = 0;
-    while (fscanf(f, "%lx %127s", &offset, name) == 2) {
-        checked++;
-        /* the video decoder's are filled in when its library is loaded
-         * (load_video_decoder), not at start: looked at after that */
-        if (!strncmp(name, "sceVideodec2", 12)) {
-            if (vdec_slot_count < VDEC_SLOTS) {
-                vdec_slots[vdec_slot_count].offset = offset;
-                snprintf(vdec_slots[vdec_slot_count].name, sizeof(vdec_slots[0].name), "%s", name);
-                vdec_slot_count++;
-            }
-            continue;
-        }
-        if (*(const uint64_t *)(EBOOT_BASE + offset) == 0) {
-            fprintf(stderr, "VLC-PS5: unresolved import: %s\n", name);
-            if (strlen(unresolved) + strlen(name) + 2 < sizeof(unresolved)) {
-                strcat(unresolved, name);
-                strcat(unresolved, " ");
-            }
-            if (missing++ < 10)
-                snprintf(list + strlen(list), sizeof(list) - strlen(list), "%s%s",
-                         missing > 1 ? " " : "", name);
-        }
-    }
-    fclose(f);
-    fprintf(stderr, "VLC-PS5: %d of %d imports unresolved\n", missing, checked);
-    if (missing) {
-        char toast[512];
-        snprintf(toast, sizeof(toast), "VLC-PS5: %d unresolved imports: %s", missing, list);
-        /* Avoid notification runtime calls while handling a native fatal signal. */
-    (void)toast;
-    }
-}
-
-static bool exists(const char *path)
-{
-    struct stat st;
-    return stat(path, &st) == 0;
-}
-
-/* After the sandbox is lifted: where our folder is now. /app0 may still
- * resolve; otherwise the sandbox's own copy of it (/mnt/sandbox/<title>_NNN/app0,
- * the folder the daemon found our request in) or the folder
- * ShadowMountPlus launched us from. */
-/* Our folder is marked before full access (/app0 is gone after it), so the
- * search below finds this launch's folder and not another: the first
- * PPSA85421_ entry of /mnt/sandbox, as first done, could be an older launch's
- * or another copy of the app, whose prefs.txt then came up (the look
- * switching between Classic and Modern "by itself"). */
-#define INSTANCE_FILE "/cache/instance.txt"
-static char instance_mark[64];
-
-static void mark_app_dir(void)
-{
-    snprintf(instance_mark, sizeof(instance_mark), "%d-%.0f", (int)getpid(), plat_time() * 1000);
-    mkdir(APP_DIR "/cache", 0777);
-    FILE *f = fopen(APP_DIR INSTANCE_FILE, "w");
-    if (!f) {
-        instance_mark[0] = 0;
-        return;
-    }
-    fputs(instance_mark, f);
-    fclose(f);
-}
-
-static bool is_marked(const char *dir)
-{
-    if (!instance_mark[0])
-        return false;
-    char path[300], got[64] = "";
-    snprintf(path, sizeof(path), "%s" INSTANCE_FILE, dir);
-    FILE *f = fopen(path, "r");
-    if (!f)
-        return false;
-    if (!fgets(got, sizeof(got), f))
-        got[0] = 0;
-    fclose(f);
-    return !strcmp(got, instance_mark);
-}
-
-static void find_app_dir(void)
-{
-    if (exists(APP_DIR "/eboot.bin"))
-        return;
-    char path[256], first[256] = "";
-    int candidates = 0;
-    DIR *d = opendir("/mnt/sandbox");
-    if (d) {
-        struct dirent *e;
-        while ((e = readdir(d))) {
-            if (strncmp(e->d_name, VLC_PS5_TITLE_ID "_", sizeof(VLC_PS5_TITLE_ID)))
-                continue;
-            snprintf(path, sizeof(path), "/mnt/sandbox/%s/app0/eboot.bin", e->d_name);
-            if (!exists(path))
-                continue;
-            candidates++;
-            snprintf(path, sizeof(path), "/mnt/sandbox/%s/app0", e->d_name);
-            fprintf(stderr, "VLC-PS5: candidate folder %s%s\n", path, is_marked(path) ? " (ours)" : "");
-            if (!first[0])
-                snprintf(first, sizeof(first), "%s", path);
-            if (is_marked(path)) {
-                snprintf(app_dir, sizeof(app_dir), "%s", path);
-                break;
-            }
-        }
-        closedir(d);
-    }
-    /* no mark found: the first one, as before */
-    if (!strcmp(app_dir, APP_DIR) && first[0] && !(instance_mark[0] && candidates > 1))
-        snprintf(app_dir, sizeof(app_dir), "%s", first);
-    if (!strcmp(app_dir, APP_DIR) && is_marked("/data/homebrew/" VLC_PS5_TITLE_ID))
-        snprintf(app_dir, sizeof(app_dir), "/data/homebrew/" VLC_PS5_TITLE_ID);
-    if (!strcmp(app_dir, APP_DIR) && first[0])
-        snprintf(app_dir, sizeof(app_dir), "%s", first);
-    if (!strcmp(app_dir, APP_DIR) && exists("/data/homebrew/" VLC_PS5_TITLE_ID "/eboot.bin"))
-        snprintf(app_dir, sizeof(app_dir), "/data/homebrew/" VLC_PS5_TITLE_ID);
-    if (!strcmp(app_dir, APP_DIR))
-        fprintf(stderr, "VLC-PS5: full access, but our folder wasn't found again\n");
-    else
-        fprintf(stderr, "VLC-PS5: our folder is now %s\n", app_dir);
-}
-
-/* Optional full access: etaHEN, the Lapy JB daemon and the Ruffle/XPSemu
- * Helper all lift a title's sandbox when it writes {"PID":<pid>} to
- * /download0/etahen_jailbreak; they delete the file when done. With one
- * running we see all of /data and USB drives plugged in later; without one
- * nobody takes the request and VLC carries on in its sandbox, as before.
- * Waits at most a second, while the launch image is still up. */
-#define JB_REQUEST "/download0/etahen_jailbreak"
-#define JB_STAGED JB_REQUEST ".tmp"
-
-/* Out of the sandbox: root (effective uid 0). /data alone says nothing: a
- * ShadowMountPlus title already sees it from inside its sandbox (console run
- * 9: /data visible, euid 1, and drives plugged in later stayed invisible). */
-uid_t __real_geteuid(void); /* the kernel's (geteuid itself is wrapped: ps5/compat/libc_stubs.c) */
+/* Plexium does not request sandbox changes, edit helper allowlists or scan
+ * other titles' installation folders. The launcher supplies /app0. */
+uid_t __real_geteuid(void);
 gid_t __real_getegid(void);
-
-static bool lifted(void)
-{
-    return __real_geteuid() == 0;
-}
-
-static void request_full_access(void)
-{
-    mark_app_dir();
-    if (lifted()) {
-        full_access = true;
-        fprintf(stderr, "VLC-PS5: full access already (euid %d)\n", (int)__real_geteuid());
-        mkdir("/data/plexium", 0777);
-        find_app_dir();
-        return;
-    }
-    /* The Ruffle/XPSemu Helper only lifts titles on its allowlist and re-reads
-     * /data/whitelist.txt on every request (console run 10: request taken,
-     * nothing lifted). A ShadowMountPlus title sees /data: put ourselves on it. */
-    if (exists("/data")) {
-        bool listed = false;
-        FILE *wl = fopen("/data/whitelist.txt", "r");
-        if (wl) {
-            char line[64];
-            while (!listed && fgets(line, sizeof(line), wl))
-                listed = strncmp(line, VLC_PS5_TITLE_ID, 9) == 0;
-            fclose(wl);
-        }
-        if (!listed) {
-            wl = fopen("/data/whitelist.txt", "a");
-            bool ok = wl && fprintf(wl, "\n%s\n", VLC_PS5_TITLE_ID) > 0;
-            if (wl)
-                fclose(wl);
-            fprintf(stderr, "VLC-PS5: added to /data/whitelist.txt: %s\n", ok ? "yes" : "can't write it");
-        }
-    }
-    unlink(JB_REQUEST);
-    unlink(JB_STAGED);
-    char request[48];
-    int len = snprintf(request, sizeof(request), "{\"PID\":%d}\n", (int)getpid());
-    int fd = open(JB_STAGED, O_WRONLY | O_CREAT | O_TRUNC, 0666);
-    if (fd < 0) {
-        fprintf(stderr, "VLC-PS5: no full access: can't write the request (errno %d)\n", errno);
-        return;
-    }
-    /* Whole, then renamed: a daemon never reads half a request. */
-    bool ok = fchmod(fd, 0666) == 0 && write(fd, request, len) == len && fsync(fd) == 0;
-    ok = close(fd) == 0 && ok;
-    if (!ok || rename(JB_STAGED, JB_REQUEST) != 0) {
-        fprintf(stderr, "VLC-PS5: no full access: request not written (errno %d)\n", errno);
-        unlink(JB_STAGED);
-        return;
-    }
-    /* (2.5 s: a busy daemon took longer than the 1 s first allowed) */
-    double start = plat_time();
-    while (exists(JB_REQUEST) && plat_time() - start < jb_wait)
-        usleep(20000);
-    if (exists(JB_REQUEST)) {
-        unlink(JB_REQUEST); /* nobody listening: don't leave it for a daemon started later */
-        fprintf(stderr, "VLC-PS5: sandboxed (no jailbreak daemon answered in %.1f s): no phone/PC page, "
-                        "no DLNA server; is etaHEN or the Helper running, PPSA85421 whitelisted?\n", jb_wait);
-        return;
-    }
-    /* Taken. Daemons set the effective uid (the real one can stay as it was)
-     * and point our root at the console's: either says the sandbox is gone. */
-    double taken = plat_time();
-    while (!lifted() && plat_time() - taken < 4.0)
-        usleep(20000);
-    full_access = lifted();
-    fprintf(stderr, "VLC-PS5: jailbreak request taken after %.0f ms, checked %.0f ms more: %s "
-            "(uid %d, euid %d, /data %s)\n", (taken - start) * 1000, (plat_time() - taken) * 1000,
-            full_access ? "full access" : "still sandboxed", (int)getuid(), (int)__real_geteuid(),
-            exists("/data") ? "visible" : "not visible");
-    if (full_access) {
-        mkdir("/data/plexium", 0777); /* our folder on the console's storage, for FTP */
-        find_app_dir();
-    }
-}
 
 /* VLC's home, cache and temporary files, and the graphics driver's shader
  * caches: the app's folder (a title has no HOME, and /tmp isn't ours to
@@ -470,7 +212,7 @@ int plat_language(void)
     int lang = -1;
     /* parameter 1: the system language (English when the console doesn't
      * give the call) */
-    if (!import_resolved("sceSystemServiceParamGetInt") || sceSystemServiceParamGetInt(1, &lang) != 0)
+    if (!PLEX_NATIVE_IMPORT_READY(sceSystemServiceParamGetInt) || sceSystemServiceParamGetInt(1, &lang) != 0)
         return -1;
     return lang;
 }
@@ -499,22 +241,24 @@ void plat_init(void)
     rename(LOG_PATH, APP_DIR "/plexium.old.log");
     /* Append mode, like the crash report's descriptor: with "w" the lines still
      * buffered at a crash were written over the start of the report. */
-    if (freopen(LOG_PATH, "a", stderr)) {
+    // A failed freopen closes stderr, making subsequent diagnostics undefined.
+    // Open first; preserve the original stream/descriptor if the title is read-only.
+    if (plex_startup_log_open(LOG_PATH)) {
         static char log_buffer[256 * 1024];
         setvbuf(stderr, log_buffer, _IOFBF, sizeof(log_buffer));
         pthread_t flusher;
-        pthread_create(&flusher, NULL, log_flusher, NULL);
-        /* A title may start without descriptors 1 and 2: the log goes on both. */
-        if (fileno(stderr) != STDERR_FILENO)
-            dup2(fileno(stderr), STDERR_FILENO);
-        dup2(fileno(stderr), STDOUT_FILENO);
+        if (pthread_create(&flusher, NULL, log_flusher, NULL) == 0)
+            pthread_detach(flusher);
+        else
+            setvbuf(stderr, NULL, _IONBF, 0);
         setvbuf(stdout, NULL, _IOLBF, 0);
     } else {
-        plat_notify("VLC-PS5: can't write /app0/plexium.log");
+        fprintf(stderr, "Plexium: title log unavailable; retaining existing stderr\n");
     }
     fprintf(stderr,"start: build " PLEX_BUILD_COMMIT " pid=%d title=PPSA85421 runtime=locked-PS5_Vulkan; SIGSYS/SIGABRT tracked separately\n",(int)getpid());
     fprintf(stderr, "VLC-PS5: load address marker plat_init=%p\n", (void *)plat_init);
     crash_fd = open(LOG_PATH, O_WRONLY | O_APPEND);
+    crash_file_fd = open(APP_DIR "/vlc-crash.txt", O_WRONLY | O_CREAT | O_TRUNC, 0600);
 
     static uint8_t alt_stack[64 * 1024] __attribute__((aligned(16)));
     stack_t ss = { .ss_sp = alt_stack, .ss_size = sizeof(alt_stack) };
@@ -530,18 +274,16 @@ void plat_init(void)
     /* A dropped network connection must not end the app. */
     signal(SIGPIPE, SIG_IGN);
 
-    report_unresolved_imports();
-    /* the decoder library and its compute queue first, then full access: the
-     * Helper answered in 60 ms with them loaded (console run 12), and both
-     * fail after full access (0x80020063, 0x811D0111). vdec_load=0: after. */
+    fprintf(stderr, "Plexium: native startup; helper requests disabled\n");
+    /* Retain the original decoder initialization order, without helper or
+     * sandbox changes between phases. */
     int hw_decode = boot_setting("hw_decode", 1), vdec_load = boot_setting("vdec_load", 1);
     if (!hw_decode)
         fprintf(stderr, "VLC-PS5: hardware decoding off (settings.txt): decoder library not loaded\n");
     if (hw_decode && vdec_load == 1) {
         load_video_decoder();
-        jb_wait = 6;
     }
-    request_full_access();
+    full_access = __real_geteuid() == 0; // Observe launcher state; never change it.
     if (hw_decode && vdec_load != 1)
         load_video_decoder();
     else if (vdec_ready && vlc_ps5_vdec_probe && plat_full_access())

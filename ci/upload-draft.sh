@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Never create/publish a public release; only update this existing draft.
 set -euo pipefail
+if [[ -f ci/HARDWARE-HOLD ]]; then
+ echo "Hardware hold: retain CI investigation artifacts; do not update candidate delivery."
+ exit 0
+fi
 repo=${GITHUB_REPOSITORY:?GitHub repository required}
 tag=v0.2.0-native-candidate.1
 release=$(gh api "repos/$repo/releases" --jq ".[] | select(.tag_name==\"$tag\" and .draft==true) | .id")

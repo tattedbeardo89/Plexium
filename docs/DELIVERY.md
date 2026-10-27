@@ -1,5 +1,7 @@
 # Plexium 0.2 browsing update delivery
 
+**Hardware hold:** the latest 0.2 launch test was followed by reboot/safe-mode recovery. Do not install or retest 0.2. No replacement is hardware accepted. See [startup review](STARTUP-AUDIT.md).
+
 **Known 0.2 installation regression:** the user reports that 0.2 does not appear in ShadowMountPlus, while restoring 0.1 works at the same path. Keep 0.1 installed. See [diagnosis](SHADOWMOUNT-REGRESSION.md); 0.2 is not a confirmed hardware-compatible update.
 
 The [open, unmerged PR #1](https://github.com/tattedbeardo89/Plexium/pull/1) contains fixes for avatars, automatically hiding video controls, progressive Home loading and warm caches, paginated Recommended/Library browsing, richer details/cast/related shelves and audio artwork/metadata. See [browsing update](BROWSING-UPDATE.md).

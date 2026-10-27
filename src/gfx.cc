@@ -51,6 +51,15 @@ std::vector<VkSemaphore> rendered; /* per swapchain image */
 Frame frames[GFX_FRAMES];
 uint32_t image_index;
 uint64_t completed;
+bool frame_failed;
+constexpr uint64_t frame_timeout_ns = 5ULL * 1000 * 1000 * 1000;
+bool frame_result(VkResult result, const char *operation)
+{
+    if (result == VK_SUCCESS) return true;
+    fprintf(stderr, "gfx: %s failed: %d; frame processing stopped\n", operation, result);
+    frame_failed = true;
+    return false;
+}
 VkCommandPool setup_pool;
 
 /* Host test build: the offscreen target and its read-back buffer. */
@@ -669,30 +678,29 @@ void gfx_shutdown()
 
 VkCommandBuffer gfx_begin_frame()
 {
+    if (frame_failed) return VK_NULL_HANDLE;
     Frame &f = frames[gfx.frame_slot];
-    vkWaitForFences(gfx.device, 1, &f.fence, VK_TRUE, UINT64_MAX);
+    if (!frame_result(vkWaitForFences(gfx.device, 1, &f.fence, VK_TRUE, frame_timeout_ns), "frame wait")) return VK_NULL_HANDLE;
     if (f.number > completed)
         completed = f.number;
     if (gfx.offscreen) {
         /* One image: the frame before must be done with it. */
         for (Frame &other : frames)
-            vkWaitForFences(gfx.device, 1, &other.fence, VK_TRUE, UINT64_MAX);
+            if (!frame_result(vkWaitForFences(gfx.device, 1, &other.fence, VK_TRUE, frame_timeout_ns), "offscreen wait")) return VK_NULL_HANDLE;
         completed = gfx.frame_number;
         image_index = 0;
     } else {
-        VkResult r = vkAcquireNextImageKHR(gfx.device, swapchain, UINT64_MAX, f.acquired,
+        VkResult r = vkAcquireNextImageKHR(gfx.device, swapchain, frame_timeout_ns, f.acquired,
                                            VK_NULL_HANDLE, &image_index);
         if (r != VK_SUCCESS && r != VK_SUBOPTIMAL_KHR) {
-            fprintf(stderr, "gfx: acquire failed: %d\n", r);
+            frame_result(r, "acquire");
             return VK_NULL_HANDLE;
         }
     }
-    vkResetFences(gfx.device, 1, &f.fence);
-    vkResetCommandPool(gfx.device, f.pool, 0);
+    if (!frame_result(vkResetCommandPool(gfx.device, f.pool, 0), "command pool reset")) return VK_NULL_HANDLE;
     VkCommandBufferBeginInfo bi = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vkBeginCommandBuffer(f.cmd, &bi);
-    f.number = gfx.frame_number + 1;
+    if (!frame_result(vkBeginCommandBuffer(f.cmd, &bi), "command begin")) return VK_NULL_HANDLE;
     return f.cmd;
 }
 
@@ -710,8 +718,9 @@ void gfx_begin_pass(VkCommandBuffer cmd)
     pass_now = PASS_MAIN;
 }
 
-void gfx_end_frame(VkCommandBuffer cmd)
+bool gfx_end_frame(VkCommandBuffer cmd)
 {
+    if (frame_failed || !cmd) return false;
     Frame &f = frames[gfx.frame_slot];
     vkCmdEndRenderPass(cmd);
     if (pass_now == PASS_HDR) {
@@ -743,7 +752,7 @@ void gfx_end_frame(VkCommandBuffer cmd)
                                &region);
     }
 #endif
-    vkEndCommandBuffer(cmd);
+    if (!frame_result(vkEndCommandBuffer(cmd), "command end")) return false;
     /* (the HDR10 frame reaches the framebuffer by a copy) */
     VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT;
     VkSubmitInfo si = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
@@ -756,7 +765,11 @@ void gfx_end_frame(VkCommandBuffer cmd)
         si.signalSemaphoreCount = 1;
         si.pSignalSemaphores = &rendered[image_index];
     }
-    vkQueueSubmit(gfx.queue, 1, &si, f.fence);
+    // Reset only once commands are ready to submit. Never reuse an unsignaled
+    // fence after a rejected submission.
+    if (!frame_result(vkResetFences(gfx.device, 1, &f.fence), "fence reset")) return false;
+    if (!frame_result(vkQueueSubmit(gfx.queue, 1, &si, f.fence), "frame submit")) return false;
+    f.number = gfx.frame_number + 1;
     if (!gfx.offscreen) {
         VkPresentInfoKHR pi = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
         pi.waitSemaphoreCount = 1;
@@ -764,16 +777,18 @@ void gfx_end_frame(VkCommandBuffer cmd)
         pi.swapchainCount = 1;
         pi.pSwapchains = &swapchain;
         pi.pImageIndices = &image_index;
-        vkQueuePresentKHR(gfx.queue, &pi);
+        VkResult present = vkQueuePresentKHR(gfx.queue, &pi);
+        if (present != VK_SUBOPTIMAL_KHR && !frame_result(present, "present")) return false;
     }
 #ifdef VLCPS5_HOST
     if (shot) {
-        vkWaitForFences(gfx.device, 1, &f.fence, VK_TRUE, UINT64_MAX);
+        if (!frame_result(vkWaitForFences(gfx.device, 1, &f.fence, VK_TRUE, frame_timeout_ns), "screenshot wait")) return false;
         save_png(shot);
     }
 #endif
     gfx.frame_number++;
     gfx.frame_slot = (gfx.frame_slot + 1) % GFX_FRAMES;
+    return true;
 }
 
 uint64_t gfx_completed_frame()

@@ -1,5 +1,7 @@
 # Updating an existing Plexium installation
 
+**Hardware hold:** the latest 0.2 launch test was followed by reboot/safe-mode recovery. Do not install or retest 0.2. No replacement is hardware accepted. See [startup review](STARTUP-AUDIT.md).
+
 **Known 0.2 installation regression:** the user reports that 0.2 does not appear in ShadowMountPlus, while restoring 0.1 works at the same path. Keep 0.1 installed. See [diagnosis](SHADOWMOUNT-REGRESSION.md); 0.2 is not a confirmed hardware-compatible update.
 
 For an installed Plexium `PPSA85421`, close the app, back up its app folder and private `/data/plexium-client` data, and replace only the app folder using the complete new installation ZIP through your existing supported launcher procedure. Keep private data in place so the device identity and account are retained. Keep the original 0.1 package and matching symbols for rollback. Do not copy source/debug archives to the console or merge old and new executable/module files.

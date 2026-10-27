@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Keep bounded build diagnostics with the existing draft when artifact access fails.
 set -euo pipefail
+[[ ! -f ci/HARDWARE-HOLD ]] || { echo "Hardware hold: leave quarantined release unchanged."; exit 0; }
 repo=${GITHUB_REPOSITORY:?}
 export PLEXIUM_DIAGNOSTIC_RUN_ID=${1:-$GITHUB_RUN_ID}
 release=$(gh api "repos/$repo/releases" --jq '.[] | select(.tag_name=="v0.2.0-native-candidate.1" and .draft==true) | .id')

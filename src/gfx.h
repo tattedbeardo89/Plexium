@@ -43,7 +43,7 @@ void gfx_shutdown();
 VkCommandBuffer gfx_begin_frame();
 void gfx_begin_pass(VkCommandBuffer cmd);
 /* Ends the pass, submits, presents (or saves the host screenshot). */
-void gfx_end_frame(VkCommandBuffer cmd);
+bool gfx_end_frame(VkCommandBuffer cmd);
 /* HDR10 output on or off (waits for the GPU); false if it couldn't change. */
 bool gfx_set_hdr(bool on);
 /* What the console sends to the TV now: 1 SDR, 2 HDR, other unknown. */

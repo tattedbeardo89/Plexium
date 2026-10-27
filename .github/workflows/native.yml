@@ -48,6 +48,8 @@ jobs:
           VULKAN_HEADERS: /usr/include
         run: |
           bash host/check.sh
+          bash host/test-gfx-failures.sh
+          SANITIZE=1 bash host/test-gfx-failures.sh
           bash host/check-native-source.sh
           bash host/test-native-transport.sh
           SANITIZE=1 bash host/check.sh

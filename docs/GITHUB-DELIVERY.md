@@ -1,5 +1,7 @@
 # GitHub delivery
 
+**Hardware hold:** the latest 0.2 launch test was followed by reboot/safe-mode recovery. Do not install or retest 0.2. No replacement is hardware accepted. See [startup review](STARTUP-AUDIT.md).
+
 **Known 0.2 installation regression:** the user reports that 0.2 does not appear in ShadowMountPlus, while restoring 0.1 works at the same path. Keep 0.1 installed. See [diagnosis](SHADOWMOUNT-REGRESSION.md); 0.2 is not a confirmed hardware-compatible update.
 
 [Feature branch](https://github.com/tattedbeardo89/Plexium/tree/feature/plexium-native-foundation) · [PR #1](https://github.com/tattedbeardo89/Plexium/pull/1) (open and unmerged). Main is the initially empty review baseline; existing implementation history was preserved without force pushes.

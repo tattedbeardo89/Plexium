@@ -13,6 +13,7 @@
 #include <deque>
 #include <mutex>
 #include <atomic>
+#include <cstdio>
 namespace plex {Transport ps5_transport();}
 // Diagnostic ABI retained for the platform crash reporter; no legacy UI is linked.
 static_assert(std::atomic<unsigned>::is_always_lock_free, "Crash checkpoints require lock-free reads");
@@ -43,17 +44,18 @@ class NativePlayer final:public plexium::PlaybackPort {
 };
 unsigned buttons(uint32_t p){using namespace plexium;unsigned out=0;const uint32_t raw[]={PAD_UP,PAD_DOWN,PAD_LEFT,PAD_RIGHT,PAD_CROSS,PAD_CIRCLE,PAD_L1,PAD_R1,PAD_OPTIONS};for(unsigned i=0;i<9;++i)if(p&raw[i])out|=1u<<i;return out;}
 }
+static void startup(const char *phase){std::fprintf(stderr,"Plexium startup: %s\n",phase);std::fflush(stderr);}
 int main(){
- plat_init();if(!gfx_init())return 1;
+ plat_init();startup("platform ready");if(!gfx_init())return 1;startup("graphics ready");
  IMGUI_CHECKVERSION();ImGui::CreateContext();auto &io=ImGui::GetIO();io.IniFilename=nullptr;io.LogFilename=nullptr;io.DisplaySize={float(gfx.width),float(gfx.height)};
  std::string font=std::string(plat_data_dir())+"/fonts/Inter-Regular.ttf";io.Fonts->AddFontFromFileTTF(font.c_str(),32);
  ImGui_ImplVulkan_InitInfo init{};init.ApiVersion=VK_API_VERSION_1_1;init.Instance=gfx.instance;init.PhysicalDevice=gfx.gpu;init.Device=gfx.device;init.QueueFamily=gfx.queue_family;init.Queue=gfx.queue;init.DescriptorPoolSize=2048;init.MinImageCount=2;init.ImageCount=std::max(2u,gfx.image_count);init.PipelineInfoMain.RenderPass=gfx.render_pass;init.PipelineInfoMain.MSAASamples=VK_SAMPLE_COUNT_1_BIT;
  if(!ImGui_ImplVulkan_Init(&init))return 2;
- if(!player_init())return 3;
+ startup("UI ready");if(!player_init())return 3;startup("player ready");
  NativePlayer player;plexium::View view;plex::Artwork artwork(plex::ps5_transport());std::string art_scope;
  {
  auto session=std::make_unique<plexium::Session>(plex::ps5_transport(),plexium::data_path,player);
- plexium::Runtime runtime(std::move(session));runtime.send({plexium::Action::Restore,{},{}});
+ plexium::Runtime runtime(std::move(session));startup("session ready");runtime.send({plexium::Action::Restore,{},{}});
  double last=plat_time(),poll=last,timeline=last;uint32_t previous=0;
  for(;;){
   player.pump();
@@ -72,11 +74,11 @@ int main(){
   if(model.screen==plexium::Screen::Playback&&player_ended()&&!model.busy)runtime.send({plexium::Action::Stop,"ended",{}});
   ImGui_ImplVulkan_NewFrame();io.DisplaySize={float(gfx.width),float(gfx.height)};io.DeltaTime=dt;ImGui::NewFrame();
   auto action=view.frame(model,pressed,dt);if(action){if(action->action==plexium::Action::Stop){action->text=std::to_string(player_time());player_stop();}runtime.send(*action);}ImGui::Render();
-  auto cmd=gfx_begin_frame();if(!cmd)continue;
+  auto cmd=gfx_begin_frame();if(!cmd)return 4;
   video_upload(cmd);bool playing=model.screen==plexium::Screen::Playback&&model.detail.type!="track";
   video_prepare(cmd,playing?float(gfx.width):0,playing?float(gfx.height):0);gfx_begin_pass(cmd);
   if(playing){float aspect=video_picture_aspect();float w=float(gfx.width),h=aspect>0?w/aspect:float(gfx.height);if(h>gfx.height){h=float(gfx.height);w=h*aspect;}video_draw(cmd,(gfx.width-w)/2,(gfx.height-h)/2,w,h);}
-  ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(),cmd);gfx_end_frame(cmd);
+  ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(),cmd);if(!gfx_end_frame(cmd))return 4;
   if(gfx.frame_number==3)plat_hide_splash();
  }
  }

@@ -15,5 +15,5 @@ with zipfile.ZipFile(root/'Plexium-PPSA85421.zip') as z:
  assert z.read('PPSA85421/eboot.bin')==(repo/'dist/PPSA85421/eboot.bin').read_bytes()
 notices=len(json.loads((repo/'dist/PPSA85421/licenses/INDEX.json').read_text()));assert notices>=100
 h=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
-(root/'native-validation.json').write_text(json.dumps({'native_build_commit':commit,'title_id':'PPSA85421','elf_build_id':build_id,'self_sha256':h(repo/'dist/PPSA85421/eboot.bin'),'zip_sha256':h(root/'Plexium-PPSA85421.zip'),'debug_elf_sha256':h(elf),'archive_permissions':'passed','archive_crc':'passed','notice_files':notices,'hardware_verification':'not run','live_plex_verification':'not run'},indent=2)+'\n')
+(root/'native-validation.json').write_text(json.dumps({'native_build_commit':commit,'title_id':'PPSA85421','elf_build_id':build_id,'self_sha256':h(repo/'dist/PPSA85421/eboot.bin'),'zip_sha256':h(root/'Plexium-PPSA85421.zip'),'debug_elf_sha256':h(elf),'archive_permissions':'passed','archive_crc':'passed','notice_files':notices,'delivery_status':'held after user-reported reboot' if (repo/'ci/HARDWARE-HOLD').exists() else 'development candidate','hardware_verification':'not run','live_plex_verification':'not run'},indent=2)+'\n')
 print('PASS: actual native source stamp, ELF build ID, matching ZIP payload, CRC and executable permissions')

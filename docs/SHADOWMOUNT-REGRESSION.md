@@ -15,11 +15,8 @@ ShadowMountPlus upstream [source inspected at c371efd](https://github.com/drakmo
 
 The rollback result identifies a reproducible difference in the update procedure/package outcome. It does **not** prove the new executable is the cause: console-side file hashes, permissions, mount state and registration errors are not yet available. No signing or metadata workaround is justified by current evidence. No replacement binary is claimed to fix this issue.
 
-## Next controlled device check
+## Reboot and recovery report — 2026-10-27
 
-1. Keep the working 0.1 folder and a separate backup of its executable. Close Plexium and use the launcher's supported unmount/maintenance procedure before changing executable files.
-2. Preserve the existing folder and `sce_sys`. Replace only `eboot.bin` and `imports.txt` with the files extracted from 0.2. Every other packaged file is identical. Retain normal executable permissions. Keep `/data/plexium-client` and all registration databases untouched.
-3. Use the supported remount/refresh procedure and report separately whether the title stays visible and whether it launches. Restore the backed-up 0.1 executable/imports if unsuccessful. Do not delete the whole folder again for this comparison.
-4. Collect the ShadowMountPlus version and only relevant lines mentioning `PPSA85421` from `/data/shadowmount/debug.log` around scan/install/mount failure. Compare the copied executable's byte count/hash against the table if a supported read-only method is available. Do not include account tokens or playback URLs.
+After replacing the executable and imports in the working 0.1 folder, the user reports launch failure, a console reboot, safe mode and a need to reinstall system software. The supplied ShadowMountPlus log ends after startup synchronization; it has no Plexium launch/crash record. It cannot identify the fault or establish the cause of the recovery requirement. **Do not repeat the device test or install 0.2.** Prior controlled-device-test instructions are withdrawn.
 
-The developer has no console connection. This test has not been run automatically and the root cause remains unresolved pending device evidence.
+Replacement delivery is held by `ci/HARDWARE-HOLD`. Debug symbols and original packages are preserved for investigation. The source review and limitations are recorded in [startup audit](STARTUP-AUDIT.md). No replacement is described as safe or hardware accepted.
