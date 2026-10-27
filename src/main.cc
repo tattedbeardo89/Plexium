@@ -42,6 +42,17 @@ class NativePlayer final:public plexium::PlaybackPort {
  void audio_next()override{invoke([]{auto list=player_audio_tracks();if(list.empty())return int64_t(0);auto found=std::find_if(list.begin(),list.end(),[](const auto&t){return t.id==player_audio_track();});size_t n=found==list.end()?0:(found-list.begin()+1)%list.size();player_set_audio_track(list[n].id);return int64_t(0);});}
  void subtitle_next()override{invoke([]{auto list=player_subtitle_tracks();if(list.empty())return int64_t(0);auto found=std::find_if(list.begin(),list.end(),[](const auto&t){return t.id==player_subtitle_track();});size_t n=found==list.end()?0:(found-list.begin()+1)%list.size();if(list[n].id<0)player_subtitles_off();else player_set_subtitle_track(list[n].id);return int64_t(0);});}
 };
+// Keep growing application models off the native entry thread's stack. Member
+// order keeps the player alive until the worker and artwork have shut down.
+struct Application {
+ NativePlayer player;
+ plexium::View view;
+ plex::Artwork artwork{plex::ps5_transport()};
+ plexium::Runtime runtime{std::make_unique<plexium::Session>(plex::ps5_transport(),plexium::data_path,player)};
+ plexium::Model model;
+ plexium::MediaContext access;
+ std::string art_scope;
+};
 unsigned buttons(uint32_t p){using namespace plexium;unsigned out=0;const uint32_t raw[]={PAD_UP,PAD_DOWN,PAD_LEFT,PAD_RIGHT,PAD_CROSS,PAD_CIRCLE,PAD_L1,PAD_R1,PAD_OPTIONS};for(unsigned i=0;i<9;++i)if(p&raw[i])out|=1u<<i;return out;}
 }
 static void startup(const char *phase){std::fprintf(stderr,"Plexium startup: %s\n",phase);std::fflush(stderr);}
@@ -52,17 +63,17 @@ int main(){
  ImGui_ImplVulkan_InitInfo init{};init.ApiVersion=VK_API_VERSION_1_1;init.Instance=gfx.instance;init.PhysicalDevice=gfx.gpu;init.Device=gfx.device;init.QueueFamily=gfx.queue_family;init.Queue=gfx.queue;init.DescriptorPoolSize=2048;init.MinImageCount=2;init.ImageCount=std::max(2u,gfx.image_count);init.PipelineInfoMain.RenderPass=gfx.render_pass;init.PipelineInfoMain.MSAASamples=VK_SAMPLE_COUNT_1_BIT;
  if(!ImGui_ImplVulkan_Init(&init))return 2;
  startup("UI ready");if(!player_init())return 3;startup("player ready");
- NativePlayer player;plexium::View view;plex::Artwork artwork(plex::ps5_transport());std::string art_scope;
- {
- auto session=std::make_unique<plexium::Session>(plex::ps5_transport(),plexium::data_path,player);
- plexium::Runtime runtime(std::move(session));startup("session ready");runtime.send({plexium::Action::Restore,{},{}});
+ auto application=std::make_unique<Application>();
+ auto &player=application->player;auto &view=application->view;auto &artwork=application->artwork;
+ auto &runtime=application->runtime;auto &model=application->model;auto &access=application->access;auto &art_scope=application->art_scope;
+ startup("session ready");runtime.send({plexium::Action::Restore,{},{}});
  double last=plat_time(),poll=last,timeline=last;uint32_t previous=0;
  for(;;){
   player.pump();
   player_tick(); // Retain VLC stop/queued-open, subtitle and decoder health servicing.
   double now=plat_time();float dt=std::clamp(float(now-last),.001f,.1f);last=now;PadState pad{};plat_pad_read(&pad);
   unsigned pressed=buttons(pad.buttons&~previous);previous=pad.buttons;
-  auto model=runtime.snapshot();auto access=runtime.media_context();
+  runtime.snapshot_into(model,access);
   if(model.screen==plexium::Screen::Playback){model.paused=player_paused();model.buffering=player_buffering();}
   if(art_scope!=access.scope){artwork.clear();art_scope=access.scope;artwork.set_scope(std::string(plexium::data_path)+"/art",access.scope);artwork.set_avatar_scope(std::string(plexium::data_path)+"/avatars",access.account_token);}
   artwork.update();
@@ -80,7 +91,6 @@ int main(){
   if(playing){float aspect=video_picture_aspect();float w=float(gfx.width),h=aspect>0?w/aspect:float(gfx.height);if(h>gfx.height){h=float(gfx.height);w=h*aspect;}video_draw(cmd,(gfx.width-w)/2,(gfx.height-h)/2,w,h);}
   ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(),cmd);if(!gfx_end_frame(cmd))return 4;
   if(gfx.frame_number==3)plat_hide_splash();
- }
  }
  artwork.clear();textures_shutdown();player_shutdown();ImGui_ImplVulkan_Shutdown();ImGui::DestroyContext();gfx_shutdown();plat_quit();return 0;
 }

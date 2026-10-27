@@ -5,6 +5,7 @@
 #include <optional>
 namespace plexium {
 enum Button { Up=1,Down=2,Left=4,Right=8,Cross=16,Circle=32,L1=64,R1=128,Options=256 };
+struct Canvas;
 class View {
  Screen previous=Screen::Welcome;
  int row=-1,column=0,side=0;
@@ -17,6 +18,7 @@ class View {
  std::string listing_focus;
  int detail_panel=3;
  float detail_scroll=0;
+ std::optional<Command> details_frame(const Model&,unsigned,Canvas&);
  public:
  std::function<ImTextureID(const plex::Item&,bool)> image;
  std::function<float(ImTextureID)> aspect;

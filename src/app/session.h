@@ -97,6 +97,8 @@ class Runtime {
  ~Runtime();
  bool send(Command);
  Model snapshot() const;
+ // Copy into reusable caller-owned storage; model and credentials share one epoch.
+ void snapshot_into(Model&,MediaContext&) const;
  MediaContext media_context() const;
 };
 }

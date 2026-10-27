@@ -19,6 +19,11 @@ int main(){
   auto before=std::chrono::steady_clock::now();assert(runtime.send({Action::Cancel,{},{}}));
   assert(std::chrono::steady_clock::now()-before<std::chrono::milliseconds(100));
   auto m=runtime.snapshot();assert(m.screen==Screen::Welcome&&m.busy);assert(runtime.media_context().token.empty());
+  Model reusable;MediaContext access;reusable.entries.reserve(100);const auto capacity=reusable.entries.capacity();
+  runtime.snapshot_into(reusable,access);assert(reusable.screen==m.screen&&reusable.busy==m.busy&&access.token.empty());
+  assert(reusable.entries.capacity()==capacity); // persistent render buffer retains its allocation
+  reusable.message="local-only";access.base="local-only";
+  runtime.snapshot_into(reusable,access);assert(reusable.message.empty()&&access.base.empty());
   release.set_value();for(int i=0;i<5000&&runtime.snapshot().busy;++i)std::this_thread::sleep_for(std::chrono::milliseconds(1));
   assert(!runtime.snapshot().busy);assert(runtime.snapshot().screen==Screen::Welcome);assert(runtime.snapshot().message.empty());
  }

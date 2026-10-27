@@ -3,7 +3,6 @@
 #include "browse.h"
 #include <cmath>
 namespace plexium {
-namespace {
 struct Canvas {
  std::function<ImTextureID(const plex::Item&,bool)> image;
  std::function<float(ImTextureID)> aspect;
@@ -48,57 +47,13 @@ struct Canvas {
  }
 
 };
+namespace {
 Command command(Action a,std::string id="",std::string text=""){return {a,std::move(id),std::move(text)};}
 Command details(const plex::Item &item){return command(Action::Details,item.id,item.type);}
 }
-std::optional<Command> View::frame(const Model&m,unsigned keys,float dt){
- Canvas c;c.image=image;c.aspect=aspect;c.books=m.books;if(m.screen!=Screen::Playback)c.box(0,0,1920,1080,IM_COL32(10,11,18,255),0);
- if(m.screen!=Screen::Playback)c.d->AddRectFilledMultiColor(c.p(600,0),c.p(1920,800),IM_COL32(34,24,62,255),IM_COL32(18,30,57,255),IM_COL32(10,11,18,255),IM_COL32(10,11,18,255));
- if(m.screen==Screen::Playback)c.box(0,0,1920,1080,IM_COL32(0,0,0,0),0);
- if(m.screen!=Screen::Playback)c.brand();
- if(previous!=m.screen){focus[std::to_string(int(previous))]={row,column};auto f=focus.find(std::to_string(int(m.screen)));row=f==focus.end()?-1:f->second.first;column=f==focus.end()?0:f->second.second;sidebar=false;previous=m.screen;entry.clear();playback_idle=0;playback_controls=true;}
- if(m.screen==Screen::Library){auto identity=m.library_id+":"+m.library_tab+":"+m.library_path+":"+std::to_string(m.page_start);if(identity!=listing_focus){listing_focus=identity;row=m.library_id.empty()?0:-1;column=0;auto tabs=library_tabs(m.library_type,m.books);for(size_t i=0;i<tabs.size();++i)if(tabs[i].first==m.library_tab)column=int(i);}}
- if(m.busy&&m.screen!=Screen::Playback){c.text(1550,80,"Loading…",25,c.muted);keys&=Circle;}
- if(!m.message.empty()){c.box(420,850,1400,82,IM_COL32(60,32,48,255));c.wrap(447,865,m.message,1320,24);}
- if(keys&Circle){if(m.screen==Screen::Playback)return command(Action::Stop);if(m.screen==Screen::Linking)return command(Action::Cancel);return command(Action::Back);}
- switch(m.screen){
- case Screen::Welcome:
-  c.text(180,326,"Your library. A bigger stage.",66);c.wrap(183,435,"A cinematic Plex experience for PlayStation 5.\nLink your own Plex account to get started.",1000,31);
-  c.text(185,930,"Unofficial Plex client; not affiliated with or endorsed by Plex",22,c.muted);
-  c.button(185,602,360,"Sign in to Plex",true);c.text(185,693,"Cross  Select     Circle  Back",24,c.muted);
-  if(keys&Cross)return command(Action::Link);break;
- case Screen::Linking:
-  c.text(180,245,"Make yourself at home.",59);c.text(184,355,"On your phone or computer, open plex.tv/link",32,c.muted);
-  c.text(183,443,m.code.empty()?"Requesting code…":m.code,100);c.text(184,591,"Code expires in "+std::to_string(m.expires)+" seconds",27,c.muted);
-  c.button(184,675,280,"Retry linking",true);if(keys&Cross)return command(Action::Link);break;
- case Screen::Profiles:
- case Screen::Servers:{
-  bool profiles=m.screen==Screen::Profiles;c.text(180,242,profiles?"Who's watching?":"Choose your server",58);
-  int count=int(profiles?m.profiles.size():m.servers.size());
-  if(keys&Down)++column;if(keys&Up)--column;column=std::clamp(column,0,std::max(0,count-1));
-  int start=std::max(0,column-4);
-  for(int i=start;i<std::min(count,start+5);++i){auto label=profiles?m.profiles[i].name:m.servers[i].label;
-   if(profiles){auto t=avatar?avatar(m.profiles[i].avatar):0;c.box(185,350+(i-start)*85,64,64,IM_COL32(42,40,67,255));if(t)c.d->AddImage(ImTextureRef(t),c.p(185,350+(i-start)*85),c.p(249,414+(i-start)*85));else c.text(202,368,plex::initials(label),24);}
-   c.button(profiles?275:185,350+(i-start)*85,profiles?630:720,label+(profiles&&m.profiles[i].protected_user?"  · PIN":""),i==column);}
-  if(count==0)c.text(185,375,"No available selections",29,c.muted);
-  if((keys&Cross)&&count){if(profiles){selected_profile=m.profiles[column].id;return command(Action::Profile,selected_profile);}return command(Action::Server,m.servers[column].id);}break;}
- case Screen::Pin:
- case Screen::Search:{
-  bool pin=m.screen==Screen::Pin;const std::string symbols=pin?"1234567890":"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -";
-  c.text(180,225,pin?"Profile PIN":"Search your server",55);c.text(185,320,pin?std::string(entry.size(),'*'):entry,48);
-  if(keys&Right)++column;if(keys&Left)--column;if(keys&Down)column+=10;if(keys&Up)column-=10;
-  column=std::clamp(column,0,int(symbols.size())+1);
-  for(int i=0;i<int(symbols.size());++i)c.button(185+(i%10)*105,415+(i/10)*86,85,std::string(1,symbols[i]),i==column);
-  c.button(185,760,230,"Delete",column==int(symbols.size()));c.button(440,760,280,pin?"Continue":"Search",column==int(symbols.size())+1);
-  if(keys&Cross){if(column<int(symbols.size())&&entry.size()<(pin?4u:100u))entry+=symbols[column];else if(column==int(symbols.size())&&!entry.empty())entry.pop_back();else if(column==int(symbols.size())+1){if(pin)return command(Action::Profile,selected_profile,entry);return command(Action::Search,"",entry);}}
-  if(!pin&&!m.entries.empty()){c.text(1000,330,"Results",30);int y=400;for(const auto&i:m.entries){c.text(1000,y,i.title,24);y+=40;if(y>730)break;}c.text(1000,770,"Results navigation pending",22,c.muted);}
-  break;}
- case Screen::Settings:
-  c.text(420,235,"Settings & About",55);c.text(425,340,"Plexium · "+std::string(title_id),30);
-  c.text(425,800,"Unofficial Plex client; not affiliated with or endorsed by Plex",22,c.muted);
-  c.wrap(425,415,"Original quality · verified HTTPS · subtitles off by default.\nThis development checkpoint requires physical PS5 acceptance.",1160,28);
-  c.button(425,650,350,"Sign out",true);if(keys&Cross)return command(Action::SignOut);break;
- case Screen::Details:{
+// Cast/related detail rendering includes a full Item temporary. Keep that
+// frame off the stack of Welcome/Profiles and the first hidden startup frames.
+__attribute__((noinline)) std::optional<Command> View::details_frame(const Model&m,unsigned keys,Canvas&c){
   if(detail_focus!=m.detail.id){detail_focus=m.detail.id;row=0;column=0;detail_panel=3;detail_scroll=0;}
   if(image){auto poster=image(m.detail,false);auto back=image(m.detail,true);
    if(back){c.photo(400,180,1430,470,back);c.box(400,180,1430,470,IM_COL32(10,11,18,185));}
@@ -154,7 +109,56 @@ std::optional<Command> View::frame(const Model&m,unsigned keys,float dt){
     if(row>0&&(keys&Cross)&&!rail.entries.empty())return details(rail.entries[column]);
    }else c.text(425,720,m.busy?"Loading more information…":"No related titles were supplied by this server.",25,c.muted);
   }
+ return {};
+}
+std::optional<Command> View::frame(const Model&m,unsigned keys,float dt){
+ Canvas c;c.image=image;c.aspect=aspect;c.books=m.books;if(m.screen!=Screen::Playback)c.box(0,0,1920,1080,IM_COL32(10,11,18,255),0);
+ if(m.screen!=Screen::Playback)c.d->AddRectFilledMultiColor(c.p(600,0),c.p(1920,800),IM_COL32(34,24,62,255),IM_COL32(18,30,57,255),IM_COL32(10,11,18,255),IM_COL32(10,11,18,255));
+ if(m.screen==Screen::Playback)c.box(0,0,1920,1080,IM_COL32(0,0,0,0),0);
+ if(m.screen!=Screen::Playback)c.brand();
+ if(previous!=m.screen){focus[std::to_string(int(previous))]={row,column};auto f=focus.find(std::to_string(int(m.screen)));row=f==focus.end()?-1:f->second.first;column=f==focus.end()?0:f->second.second;sidebar=false;previous=m.screen;entry.clear();playback_idle=0;playback_controls=true;}
+ if(m.screen==Screen::Library){auto identity=m.library_id+":"+m.library_tab+":"+m.library_path+":"+std::to_string(m.page_start);if(identity!=listing_focus){listing_focus=identity;row=m.library_id.empty()?0:-1;column=0;auto tabs=library_tabs(m.library_type,m.books);for(size_t i=0;i<tabs.size();++i)if(tabs[i].first==m.library_tab)column=int(i);}}
+ if(m.busy&&m.screen!=Screen::Playback){c.text(1550,80,"Loading…",25,c.muted);keys&=Circle;}
+ if(!m.message.empty()){c.box(420,850,1400,82,IM_COL32(60,32,48,255));c.wrap(447,865,m.message,1320,24);}
+ if(keys&Circle){if(m.screen==Screen::Playback)return command(Action::Stop);if(m.screen==Screen::Linking)return command(Action::Cancel);return command(Action::Back);}
+ switch(m.screen){
+ case Screen::Welcome:
+  c.text(180,326,"Your library. A bigger stage.",66);c.wrap(183,435,"A cinematic Plex experience for PlayStation 5.\nLink your own Plex account to get started.",1000,31);
+  c.text(185,930,"Unofficial Plex client; not affiliated with or endorsed by Plex",22,c.muted);
+  c.button(185,602,360,"Sign in to Plex",true);c.text(185,693,"Cross  Select     Circle  Back",24,c.muted);
+  if(keys&Cross)return command(Action::Link);break;
+ case Screen::Linking:
+  c.text(180,245,"Make yourself at home.",59);c.text(184,355,"On your phone or computer, open plex.tv/link",32,c.muted);
+  c.text(183,443,m.code.empty()?"Requesting code…":m.code,100);c.text(184,591,"Code expires in "+std::to_string(m.expires)+" seconds",27,c.muted);
+  c.button(184,675,280,"Retry linking",true);if(keys&Cross)return command(Action::Link);break;
+ case Screen::Profiles:
+ case Screen::Servers:{
+  bool profiles=m.screen==Screen::Profiles;c.text(180,242,profiles?"Who's watching?":"Choose your server",58);
+  int count=int(profiles?m.profiles.size():m.servers.size());
+  if(keys&Down)++column;if(keys&Up)--column;column=std::clamp(column,0,std::max(0,count-1));
+  int start=std::max(0,column-4);
+  for(int i=start;i<std::min(count,start+5);++i){auto label=profiles?m.profiles[i].name:m.servers[i].label;
+   if(profiles){auto t=avatar?avatar(m.profiles[i].avatar):0;c.box(185,350+(i-start)*85,64,64,IM_COL32(42,40,67,255));if(t)c.d->AddImage(ImTextureRef(t),c.p(185,350+(i-start)*85),c.p(249,414+(i-start)*85));else c.text(202,368,plex::initials(label),24);}
+   c.button(profiles?275:185,350+(i-start)*85,profiles?630:720,label+(profiles&&m.profiles[i].protected_user?"  · PIN":""),i==column);}
+  if(count==0)c.text(185,375,"No available selections",29,c.muted);
+  if((keys&Cross)&&count){if(profiles){selected_profile=m.profiles[column].id;return command(Action::Profile,selected_profile);}return command(Action::Server,m.servers[column].id);}break;}
+ case Screen::Pin:
+ case Screen::Search:{
+  bool pin=m.screen==Screen::Pin;const std::string symbols=pin?"1234567890":"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -";
+  c.text(180,225,pin?"Profile PIN":"Search your server",55);c.text(185,320,pin?std::string(entry.size(),'*'):entry,48);
+  if(keys&Right)++column;if(keys&Left)--column;if(keys&Down)column+=10;if(keys&Up)column-=10;
+  column=std::clamp(column,0,int(symbols.size())+1);
+  for(int i=0;i<int(symbols.size());++i)c.button(185+(i%10)*105,415+(i/10)*86,85,std::string(1,symbols[i]),i==column);
+  c.button(185,760,230,"Delete",column==int(symbols.size()));c.button(440,760,280,pin?"Continue":"Search",column==int(symbols.size())+1);
+  if(keys&Cross){if(column<int(symbols.size())&&entry.size()<(pin?4u:100u))entry+=symbols[column];else if(column==int(symbols.size())&&!entry.empty())entry.pop_back();else if(column==int(symbols.size())+1){if(pin)return command(Action::Profile,selected_profile,entry);return command(Action::Search,"",entry);}}
+  if(!pin&&!m.entries.empty()){c.text(1000,330,"Results",30);int y=400;for(const auto&i:m.entries){c.text(1000,y,i.title,24);y+=40;if(y>730)break;}c.text(1000,770,"Results navigation pending",22,c.muted);}
   break;}
+ case Screen::Settings:
+  c.text(420,235,"Settings & About",55);c.text(425,340,"Plexium · "+std::string(title_id),30);
+  c.text(425,800,"Unofficial Plex client; not affiliated with or endorsed by Plex",22,c.muted);
+  c.wrap(425,415,"Original quality · verified HTTPS · subtitles off by default.\nThis development checkpoint requires physical PS5 acceptance.",1160,28);
+  c.button(425,650,350,"Sign out",true);if(keys&Cross)return command(Action::SignOut);break;
+ case Screen::Details:return details_frame(m,keys,c);
  case Screen::Playback:{
   if(m.detail.type=="track"){
    c.box(0,0,1920,1080,IM_COL32(10,11,18,255),0);c.brand();

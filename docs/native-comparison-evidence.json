@@ -1,0 +1,124 @@
+{
+  "date": "2026-10-27",
+  "hardware_execution": "none",
+  "delivery": "held; do not install",
+  "cases": [
+    {
+      "status": "byte-for-byte reproduced published 0.1 SELF and debug ELF",
+      "self_sha256": "1bcda8075604fbe35590505f3b3b2bc146f67356bf5cd35906d1568a36438dd1",
+      "elf_sha256": "554a7d5e55e7a61ecd5b1e9ac2873d00d373ec39dc474d6487af6a3df46412d2",
+      "source": "2fbce98d89f830bd0df67f321fa7262296b6f643",
+      "linker_threads": 4,
+      "libass_config_iconv": false,
+      "vlc_build_timestamp_normalized": true,
+      "hardware_execution": "none",
+      "delivery": "held"
+    },
+    {
+      "case": "01-protocol",
+      "elf_sha256": "d9d28e201dc907105a625956ec70cb7d5d8df371a4bf24486d57b7eebbdf3843",
+      "self_sha256": "7153e6de8b1ebc84fec020480c07533bc6ecdd32ec370738c2917d562b4561ab",
+      "hardware_execution": "none",
+      "layout_checks": {
+        "issues": [],
+        "constructors": 32,
+        "imports": 481,
+        "relocations_by_type": {
+          "8": 58984,
+          "6": 481,
+          "1": 2
+        }
+      }
+    },
+    {
+      "case": "02-application",
+      "elf_sha256": "3af987066e9f21db42798515c71df0a0a39af5eb218ecb015fe49d548364d410",
+      "self_sha256": "f32b92ad65ff0696ed21f8866f95454b1ea545b81f266f21fa0af10389f981b7",
+      "hardware_execution": "none",
+      "layout_checks": {
+        "issues": [],
+        "constructors": 32,
+        "imports": 481,
+        "relocations_by_type": {
+          "8": 58995,
+          "6": 481,
+          "1": 2
+        }
+      }
+    },
+    {
+      "status": "byte-for-byte reproduced published 0.2 SELF",
+      "self_sha256": "799a6905051bd3f6f1a6d59f4a3d8824de2e664469ea42623149cf838d9531d8",
+      "elf_sha256": "2b18314af5814378eb862c34e5e7d203f71204b457a5801c9e6870b0809a7b5a",
+      "linker_threads": 4,
+      "source": "75d7ecf672ed79ab165a879a9a059b899801ae56",
+      "libass_config_iconv": false,
+      "vlc_build_timestamp_normalized": true,
+      "hardware_execution": "none",
+      "delivery": "held"
+    }
+  ],
+  "working_01_stack": {
+    "main": 3744,
+    "shared_view": 1480
+  },
+  "protocol_stack": {
+    "main": 3968,
+    "shared_view": 1480
+  },
+  "application_stack": {
+    "main": 4576,
+    "shared_view": 2504
+  },
+  "published_02_stack": {
+    "main": 4544,
+    "shared_view": 2504
+  },
+  "published_types": {
+    "01": {
+      "Item": 616,
+      "Model": 904,
+      "MediaContext": 72,
+      "Session": 1360,
+      "View": 144
+    },
+    "02": {
+      "Item": 736,
+      "Model": 1200,
+      "MediaContext": 96,
+      "Session": 1840,
+      "View": 304
+    }
+  },
+  "constructors_identical": true,
+  "published_import_pairing": {
+    "0.1 ELF / 0.1 imports": {
+      "matched": 481,
+      "total": 481
+    },
+    "0.1 ELF / 0.2 imports": {
+      "matched": 0,
+      "total": 481
+    },
+    "0.2 ELF / 0.1 imports": {
+      "matched": 0,
+      "total": 481
+    },
+    "0.2 ELF / 0.2 imports": {
+      "matched": 481,
+      "total": 481
+    }
+  },
+  "normalization": {
+    "purpose": "offline equivalence comparison only; never delivered",
+    "input": "/workspace/plexium-work/build-vlc-ps5/src/.libs/libvlccore.a",
+    "original_sha256": "d8dd312d1d0b26ca940f176389af52621520d1b2615dd2be9019ac899c82b072",
+    "normalized_sha256": "7d071df71d7c906485922011c7552150133e7585018b98aefc0c8ba40d001b8e",
+    "old_timestamp": "Oct 26 2026 02:16:34",
+    "published_timestamp": "Oct 26 2026 15:35:18",
+    "replacements": 1,
+    "length_unchanged": true,
+    "original_cache_modified": false
+  },
+  "remaining_blocker": "No observed native failing instruction or safe device execution oracle; static/build comparisons cannot prove the reboot cause."
+}

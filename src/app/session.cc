@@ -298,6 +298,7 @@ bool Runtime::send(Command command){
  if(command.action!=Action::Tick)model.busy=true;queue.push_back({generation,std::move(command)});cv.notify_one();return true;
 }
 Model Runtime::snapshot()const{std::lock_guard<std::mutex> l(mutex);return model;}
+void Runtime::snapshot_into(Model &destination,MediaContext &access)const{std::lock_guard<std::mutex> l(mutex);destination=model;access=context;}
 MediaContext Runtime::media_context()const{std::lock_guard<std::mutex> l(mutex);return context;}
 void Runtime::run(){
  for(;;){std::pair<uint64_t,Command> next;
