@@ -42,7 +42,7 @@ Native source commit: `36abbd8b5a9bbf9c0afda47af1142ec702669ab2`. ELF build ID: 
 
 The initial native link failed because the retained platform crash handler expected a bridge from the old UI. The new entry implements the real atomic checkpoint bridge. A later provenance check caught an unversioned label caused by container Git ownership; the exact-checkout safe-directory read fixed it, and the final native rebuild/package validation passed. These corrected build issues are not physical PS5 test results.
 
-## Published GitHub candidate
+## Original 0.1 rollback candidate
 
 Native source: `2fbce98d89f830bd0df67f321fa7262296b6f643`. ELF build ID: `3cf535abec047e9cc242864ec37d24ecf2f54268`. [Native CI](https://github.com/tattedbeardo89/Plexium/actions/runs/40347283259) and [independent download verification](https://github.com/tattedbeardo89/Plexium/actions/runs/40351502414) passed. The draft release remains private to authorized GitHub users, unpublished and marked prerelease. GitHub release asset digests match the downloaded Actions files.
 
@@ -59,4 +59,4 @@ The user reports the original candidate shows the correct PS5 home icon, a gener
 
 The updated host suites and shared-view regressions pass, including avatar callback wiring, detail poster/backdrop requests, multiple cast portraits, automatic video overlay hiding/waking/paused-buffering behavior, 60-item pages for a 3,700-item fixture, scoped warm caches, incremental Home publication, reduced populated-hub requests, preserved stopped resume positions and scoped non-DRM cloud-channel dispatch. ASan/UBSan and both ten-scenario HTTP/TLS adapters also passed during this update. Final native CI reruns the host/sanitizer checks against its exact source commit.
 
-The new native candidate is being built separately from the original 0.1 rollback release. Its attached native-validation.json and SHA256SUMS will identify the new compiled source and symbols. Experimental Free Live TV still requires real profile/region/native audio-video/ad/session acceptance; metadata compatibility reports are distinct from stream tests.
+The separate 0.2 candidate passed [native CI](https://github.com/tattedbeardo89/Plexium/actions/runs/40399618166) and [independent download verification](https://github.com/tattedbeardo89/Plexium/actions/runs/40402550151). Compiled source is `75d7ecf672ed79ab165a879a9a059b899801ae56`; ELF build ID is `ca072e3b015b8caf5e14be67b76d67ca64149227`. Installation ZIP SHA-256: `08ce07a90f7c009a9be09265bcfd7c18c496b82b3143b442d0d93a4bc26528af`. Original 0.1 remains unchanged. The optional anonymous provider probe returned registration HTTP 404 and channel-list HTTP 401, with zero channels; this is not authenticated service acceptance. Experimental Free Live TV still requires real profile/region/native audio-video/ad/session acceptance; metadata compatibility reports are distinct from stream tests.
