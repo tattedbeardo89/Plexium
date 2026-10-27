@@ -1,5 +1,7 @@
 # Plexium
 
+**Known 0.2 installation regression:** the user reports that 0.2 does not appear in ShadowMountPlus, while restoring 0.1 works at the same path. Keep 0.1 installed. See [diagnosis](docs/SHADOWMOUNT-REGRESSION.md); 0.2 is not a confirmed hardware-compatible update.
+
 A cinematic Plex experience for PlayStation 5.
 
 **Native development checkpoint: host tested, cross-compiled, linked, signed and package-verified. Physical PS5 and live Plex acceptance remain pending.** This is an independent project, not an in-place PlexStation rebrand. PlexStation remains the installed fallback.

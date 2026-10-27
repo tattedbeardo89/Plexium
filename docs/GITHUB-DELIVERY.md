@@ -1,5 +1,7 @@
 # GitHub delivery
 
+**Known 0.2 installation regression:** the user reports that 0.2 does not appear in ShadowMountPlus, while restoring 0.1 works at the same path. Keep 0.1 installed. See [diagnosis](SHADOWMOUNT-REGRESSION.md); 0.2 is not a confirmed hardware-compatible update.
+
 [Feature branch](https://github.com/tattedbeardo89/Plexium/tree/feature/plexium-native-foundation) · [PR #1](https://github.com/tattedbeardo89/Plexium/pull/1) (open and unmerged). Main is the initially empty review baseline; existing implementation history was preserved without force pushes.
 
 [Native build and four 90-day Actions artifacts](https://github.com/tattedbeardo89/Plexium/actions/runs/40399618166) · [Independent download verification](https://github.com/tattedbeardo89/Plexium/actions/runs/40402550151) · [Draft prerelease](https://github.com/tattedbeardo89/Plexium/releases). Sign into an authorized GitHub account for draft assets. Actions downloads normally require sign-in too.

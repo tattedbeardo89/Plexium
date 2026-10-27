@@ -1,5 +1,7 @@
 # Plexium 0.2 browsing update delivery
 
+**Known 0.2 installation regression:** the user reports that 0.2 does not appear in ShadowMountPlus, while restoring 0.1 works at the same path. Keep 0.1 installed. See [diagnosis](SHADOWMOUNT-REGRESSION.md); 0.2 is not a confirmed hardware-compatible update.
+
 The [open, unmerged PR #1](https://github.com/tattedbeardo89/Plexium/pull/1) contains fixes for avatars, automatically hiding video controls, progressive Home loading and warm caches, paginated Recommended/Library browsing, richer details/cast/related shelves and audio artwork/metadata. See [browsing update](BROWSING-UPDATE.md).
 
 Compiled source: `75d7ecf672ed79ab165a879a9a059b899801ae56`. [GitHub native build](https://github.com/tattedbeardo89/Plexium/actions/runs/40399618166) passed host tests, ASan/UBSan, PS5 compilation/link/signing and package validation. [Independent download verification](https://github.com/tattedbeardo89/Plexium/actions/runs/40402550151) passed checksums, ZIP contents/modes, matching debug identity, source-kit manifests and repository bundle validation.
