@@ -74,6 +74,8 @@ class Session {
  void channel_page(int);
  void remember_position(int64_t);
  bool private_root();
+ friend class Runtime;
+ const Model &dispatch_current(const Command&);
  void clear_context();
  public:
  Session(plex::Transport,const std::string&,PlaybackPort&);

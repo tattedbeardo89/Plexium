@@ -158,7 +158,9 @@ void Session::remember_position(int64_t position){
  rows(cached_home);cached_home.erase(std::remove_if(cached_home.begin(),cached_home.end(),[](const auto &r){return r.entries.empty();}),cached_home.end());
  for(auto &page:pages){for(auto &i:page.second.value.entries)update(i);rows(page.second.value.rails);rows(page.second.value.detail_rails);}
 }
-Model Session::dispatch(const Command &c){
+Model Session::dispatch(const Command &c){return dispatch_current(c);}
+// Runtime borrows this worker-owned view only until its locked copy completes.
+__attribute__((noinline)) const Model &Session::dispatch_current(const Command &c){
  model.message.clear();
  switch(c.action){
  case Action::Restore:{
@@ -307,8 +309,8 @@ void Runtime::run(){
    std::lock_guard<std::mutex> l(mutex);if(epoch!=generation)return;
    model=updated;model.busy=!queue.empty()||updated.screen!=Screen::Details;context=session->media_context();
   };
-  auto updated=session->dispatch(next.second);session->progress={};
-  {std::lock_guard<std::mutex> l(mutex);if(next.first==generation){model=std::move(updated);context=session->media_context();model.busy=!queue.empty();}}
+  const auto &updated=session->dispatch_current(next.second);session->progress={};
+  {std::lock_guard<std::mutex> l(mutex);if(next.first==generation){model=updated;context=session->media_context();model.busy=!queue.empty();}}
  }
 }
 }
