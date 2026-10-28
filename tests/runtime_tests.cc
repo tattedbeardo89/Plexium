@@ -27,5 +27,24 @@ int main(){
   release.set_value();for(int i=0;i<5000&&runtime.snapshot().busy;++i)std::this_thread::sleep_for(std::chrono::milliseconds(1));
   assert(!runtime.snapshot().busy);assert(runtime.snapshot().screen==Screen::Welcome);assert(runtime.snapshot().message.empty());
  }
+ // A successful worker result must be copied from Session before its borrowed
+ // view can change; snapshots remain independent, reusable caller storage.
+ {
+  assert(plex::save_credentials(root+"/account.json","fixture-device","fixture-account"));
+  Runtime runtime(std::make_unique<Session>([](const plex::Request &request){
+   if(request.url=="https://plex.tv/api/v2/user")return plex::Reply{200,"{\"id\":1}",""};
+   assert(request.url.find("/home/users")!=std::string::npos);
+   return plex::Reply{200,"<users><User id=\"1\" title=\"Owner\" /></users>",""};
+  },root,player));
+  Model reusable;MediaContext access;reusable.profiles.reserve(10);
+  assert(runtime.send({Action::Restore,{},{}}));
+  for(int i=0;i<5000;++i){runtime.snapshot_into(reusable,access);if(!reusable.busy&&reusable.screen==Screen::Profiles)break;std::this_thread::sleep_for(std::chrono::milliseconds(1));}
+  assert(!reusable.busy&&reusable.screen==Screen::Profiles&&reusable.profiles.size()==1);
+  assert(reusable.profiles[0].name=="Owner"&&reusable.profiles.capacity()>=10);
+  assert(access.account_token=="fixture-account");
+  reusable.profiles[0].name="local-only";access.account_token.clear();
+  runtime.snapshot_into(reusable,access);
+  assert(reusable.profiles[0].name=="Owner"&&access.account_token=="fixture-account");
+ }
  std::filesystem::remove_all(root);std::cout<<"PASS: render-thread nonblocking dispatch, cancellation generation, stale result rejection, joined worker cleanup\n";
 }

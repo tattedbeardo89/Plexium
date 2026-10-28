@@ -120,5 +120,35 @@
     "length_unchanged": true,
     "original_cache_modified": false
   },
-  "remaining_blocker": "No observed native failing instruction or safe device execution oracle; static/build comparisons cannot prove the reboot cause."
+  "remaining_blocker": "No observed native failing instruction or safe device execution oracle; static/build comparisons cannot prove the reboot cause.",
+  "reviewed_source": "09671e31df3e99a5257a58faf7e8fc32b7917ac7",
+  "reviewed_stack": {
+    "main_reservation_bytes": 960,
+    "shared_view_reservation_bytes": 1656,
+    "combined_reservations_bytes": 2616,
+    "send_reservation_bytes": 1240,
+    "main_send_combined_reservations_bytes": 2200,
+    "working_01_main_send_combined_bytes": 4696,
+    "worker_reservation_bytes": 168,
+    "dispatch_reservation_bytes": 1784,
+    "worker_combined_reservations_bytes": 1952,
+    "working_01_worker_combined_bytes": 2272,
+    "working_01_main_bytes": 3744,
+    "working_01_shared_view_bytes": 1480,
+    "working_01_combined_bytes": 5224,
+    "scope": "immediate stack reservations; excludes callee stacks and saved registers; no hardware acceptance",
+    "comparison": "passed"
+  },
+  "published_02_worker_stack": {
+    "worker": 1368,
+    "dispatch": 1800,
+    "combined": 3168
+  },
+  "reviewed_native_identity": {
+    "native_build_commit": "09671e31df3e99a5257a58faf7e8fc32b7917ac7",
+    "elf_build_id": "e917ba9afbc03008b9884730990911816fcc45c2",
+    "self_sha256": "b10e2ae7074e1a94745719ac3af3b1f3ad8a7e8109f517b3099d13ffe675ada9",
+    "debug_elf_sha256": "4d818606dd5e707df486b5f24c7c3c33f6770938c4849f86d207591a2f2be375",
+    "zip_sha256": "4e0281fc70b129401d95275f0b07eec32d716434cd8635b453f2663c4fb1418a"
+  }
 }

@@ -64,3 +64,8 @@ The separate 0.2 candidate passed [native CI](https://github.com/tattedbeardo89/
 ## Startup review after reboot report — 2026-10-27
 
 The user reports 0.2 launch failure, reboot, safe mode and system-software recovery after the executable-only comparison. The earlier installation-only diagnosis is superseded. Root cause remains unresolved; do not repeat the device test. [Startup audit](STARTUP-AUDIT.md) records concrete corrections, preserved 0.2 features and passing offline/native checks for source `46b736a20e7833d82beabe9467545da610da4256`. `ci/HARDWARE-HOLD` blocks candidate replacement. No new package is hardware accepted or recommended for installation. Original 0.1 remains unchanged.
+
+
+Final offline startup correction: native source `09671e31df3e99a5257a58faf7e8fc32b7917ac7` passed full compile/link/sign/package, exact source/debug stamp, ZIP payload/CRC/modes and stack-budget checks. Immediate entry/UI reservations measured 2616 bytes (0.1: 5224), worker/dispatch 1952 (0.1: 2272), and entry/send 2200 (0.1: 4696). These exclude callee frames and saved registers. See [native comparison](NATIVE-COMPARISON.md). No device execution or safe-launch claim; reboot attribution remains unresolved and hardware hold remains.
+
+The final successful-worker regression fixture and full host suites passed normally and with ASan/UBSan after this correction, including independent reusable model/context snapshots and retained vector capacity. These are local results; no fresh remote CI completion is claimed.

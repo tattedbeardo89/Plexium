@@ -36,7 +36,7 @@ The source correction stores application state and a reusable snapshot on the he
 
 The earlier startup fixes remain: no external import offsets/assumed base reads, no automatic helper/whitelist/sandbox-change requests, valid stderr after failed log opening, restricted fatal-signal operations, and checked/bounded frame failure handling. [Startup audit](STARTUP-AUDIT.md) records their limits.
 
-The first corrected native build (`6636725`) measured main at 960 and shared View at 1656 bytes: combined 2616, below 0.1. Subsequent review found the worker/dispatch pair grew from 1048 + 1224 = 2272 in 0.1 to 1368 + 1800 = 3168 in 0.2. The worker-result change is checked separately in the final native build. None of these resource measurements establishes the reboot cause.
+The first corrected native build (`6636725`) measured main at 960 and shared View at 1656 bytes: combined 2616, below 0.1. Subsequent review found the worker/dispatch pair grew from 1048 + 1224 = 2272 in 0.1 to 1368 + 1800 = 3168 in 0.2. The final native build of `09671e31df3e99a5257a58faf7e8fc32b7917ac7` passed compile/link/sign/package, source/debug identity and frame-budget checks. It measured worker at 168 and private dispatch at 1784 bytes: combined 1952, below 0.1's 2272. Entry/send measured 2200, below 0.1's 4696. Main/shared View remained 2616. None of these resource measurements establishes the reboot cause.
 
 ## Reproducing the comparison
 

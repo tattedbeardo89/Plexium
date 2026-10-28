@@ -42,3 +42,6 @@ A kernel/launcher crash record or an existing Plexium log from the failed attemp
 ## Exact baseline comparison follow-up
 
 [Native comparison](NATIVE-COMPARISON.md) reproduces both published SELF/debug ELFs byte for byte, records staged source builds, rules out mixed recorded C++ type layouts and packaged import-report mismatch, and measures the startup stack growth. The follow-up moves application/snapshot storage off the entry stack and isolates detail rendering; native frame-budget verification is required before recording its result. Failure was reported before visible UI. Root cause and hardware acceptance remain unresolved; the installation hold remains.
+
+
+Final offline startup correction: native source `09671e31df3e99a5257a58faf7e8fc32b7917ac7` passed full compile/link/sign/package, exact source/debug stamp, ZIP payload/CRC/modes and stack-budget checks. Immediate entry/UI reservations measured 2616 bytes (0.1: 5224), worker/dispatch 1952 (0.1: 2272), and entry/send 2200 (0.1: 4696). These exclude callee frames and saved registers. See [native comparison](NATIVE-COMPARISON.md). No device execution or safe-launch claim; reboot attribution remains unresolved and hardware hold remains.
