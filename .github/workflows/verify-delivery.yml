@@ -1,0 +1,82 @@
+name: Verify downloadable Plexium delivery
+on:
+  workflow_dispatch:
+    inputs:
+      native_run:
+        description: 'Native build run ID (empty selects the latest completed attempt)'
+        required: false
+        type: string
+  push:
+    branches: ['feature/**']
+    paths: ['.github/workflows/verify-delivery.yml', 'host/verify-github-delivery.py']
+permissions:
+  contents: write
+  actions: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Download and independently verify the four GitHub artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_RUN: ${{ inputs.native_run }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          run=$REQUESTED_RUN
+          if [[ -z $run ]]; then
+            run=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/native.yml/runs?status=completed&per_page=20" --jq '[.workflow_runs[] | select(.conclusion!="cancelled")][0].id // empty')
+          fi
+          [[ $run =~ ^[0-9]+$ ]] || { echo 'No completed native build to verify'; exit 1; }
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run" > native-run.json
+          commit=$(python3 -c 'import json; r=json.load(open("native-run.json")); assert r["status"]=="completed"; print(r["head_sha"])')
+          gh run download "$run" --repo "$GITHUB_REPOSITORY" --dir downloaded \
+            --pattern "Plexium-PPSA85421-$commit" \
+            --pattern "Plexium-native-debug-$commit" \
+            --pattern "Plexium-native-source-$commit" \
+            --pattern "Plexium-delivery-$commit"
+          python3 host/verify-github-delivery.py downloaded "$commit"
+          echo "Downloaded from https://github.com/$GITHUB_REPOSITORY/actions/runs/$run" >> "$GITHUB_STEP_SUMMARY"
+          cat downloaded/github-delivery-verification.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Mirror the downloaded and verified bytes to the reserved draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Restore the candidate tag after older clients omitted it in a PATCH.
+          gh api "repos/$GITHUB_REPOSITORY/releases/424741730" > draft.json
+          python3 -c 'import json; r=json.load(open("draft.json")); assert r["draft"] is True, "Refuse to change a public release"'
+          if [[ $(python3 -c 'import json; print(json.load(open("draft.json"))["tag_name"])') != v0.2.0-native-candidate.1 ]]; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/424741730" \
+              -f tag_name=v0.2.0-native-candidate.1 -F draft=true -F prerelease=true --silent
+          fi
+          mkdir -p artifacts
+          python3 - <<'PY'
+          from pathlib import Path
+          names=['Plexium-PPSA85421.zip','Plexium-native-debug.elf','Plexium-native-source.tar.gz',
+                 'Plexium-source.bundle','SHA256SUMS','native-validation.json','INSTALLATION.md','DELIVERY.md']
+          for name in names:
+              matches=list(Path('downloaded').rglob(name))
+              assert len(matches)==1, name
+              (Path('artifacts')/name).symlink_to(matches[0].resolve())
+          # Keep the exact native payloads, with the current delivery guidance.
+          for name in ['INSTALLATION.md','DELIVERY.md']:
+              target=Path('artifacts')/name
+              target.unlink()
+              target.symlink_to((Path('docs')/name).resolve())
+          PY
+          bash ci/upload-draft.sh
+      - name: Retain independent download verification
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: Plexium-GitHub-download-verification-${{ github.sha }}
+          path: |
+            native-run.json
+            downloaded/github-delivery-verification.json
+          if-no-files-found: error
+          retention-days: 90

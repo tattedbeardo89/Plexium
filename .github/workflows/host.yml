@@ -1,0 +1,31 @@
+name: Plexium host regressions
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  host:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Install host prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ make pkg-config libcurl4-openssl-dev libgnutls28-dev libvulkan-dev python3-venv openssl
+      - name: Install pinned artwork tooling
+        run: |
+          python3 -m venv /tmp/plexium-tools
+          /tmp/plexium-tools/bin/pip install -r tools/requirements.txt
+          echo /tmp/plexium-tools/bin >> "$GITHUB_PATH"
+      - name: Test application, protocol, TLS, rendering and identity
+        run: bash host/check.sh
+      - name: Check native sources (host syntax only)
+        run: VULKAN_HEADERS=/usr/include bash host/check-native-source.sh
+      - name: Sanitizers
+        run: SANITIZE=1 bash host/check.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: Plexium-host-frames
+          path: build/*.png
