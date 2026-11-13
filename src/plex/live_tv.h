@@ -38,6 +38,8 @@ inline Result live_channels(Client &client,const std::string &base,const std::st
     Result lineup_failure;bool failed=false;
     Json channels=Json::array();mc=providers.data.find("MediaContainer");
     if(mc==providers.data.end() || !mc->is_object())return {{},"Malformed Plex media providers response",providers.status};
+    auto provider_list=mc->find("MediaProvider");
+    if(provider_list==mc->end() || !provider_list->is_array())return {{},"Unsupported Plex media providers response",providers.status};
     if(mc!=providers.data.end() && mc->is_object()) {
         auto list=mc->find("MediaProvider");int queried=0;
         if(list!=mc->end() && list->is_array())for(const auto &provider:*list) {
@@ -45,8 +47,15 @@ inline Result live_channels(Client &client,const std::string &base,const std::st
             auto dvr=id.substr(id.rfind(':')+1);if(!authorized.count(dvr) || ++queried>4)continue;
             auto response=client.call("GET",base,path+"/lineups/dvr/channels?X-Plex-Container-Size=200",token);
             if(!response){failed=true;lineup_failure=response;continue;}
-            auto container=response.data.find("MediaContainer");if(container==response.data.end())continue;
-            auto entries=container->find("Channel");if(entries==container->end() || !entries->is_array())continue;
+            auto container=response.data.find("MediaContainer");
+            if(container==response.data.end() || !container->is_object()){
+                failed=true;lineup_failure={{},"Malformed Plex channel lineup",response.status};continue;
+            }
+            auto entries=container->find("Channel");
+            if(entries==container->end() && number(*container,"size",-1)==0)continue;
+            if(entries==container->end() || !entries->is_array()){
+                failed=true;lineup_failure={{},"Unsupported Plex channel lineup",response.status};continue;
+            }
             for(const auto &channel:*entries) {
                 if(!channel.contains("id"))continue;
                 auto key=text(channel,"id",std::to_string(number(channel,"id"))),grid=text(channel,"gridKey");
@@ -58,16 +67,24 @@ inline Result live_channels(Client &client,const std::string &base,const std::st
     if(channels.empty()&&failed)return lineup_failure;
     return {Json{{"channels",std::move(channels)},{"configured",true}},"",200};
 }
-inline Result live_guide(Client &client,const std::string &base,const std::string &token,const Json &channel,const std::string &date) {
+inline Result live_guide(Client &client,const std::string &base,const std::string &token,const Json &channel,const std::string &date,int64_t window_start=0,int64_t window_end=0) {
     auto provider=live_provider(text(channel,"provider")),grid=text(channel,"gridKey");
     if(provider.empty() || !live_identifier(grid) || !live_date(date))return {{},"Invalid authorized guide selection",0};
+    if((window_start || window_end) && (window_start<=0 || window_end<=window_start || window_end-window_start>6*3600))return {{},"Invalid guide time window",0};
     auto result=client.call("GET",base,provider+"/grid?channelGridKey="+encode(grid)+"&date="+encode(date),token);if(!result)return result;
     Json programs=Json::array();auto mc=result.data.find("MediaContainer");
+    if(mc==result.data.end() || !mc->is_object())return {{},"Malformed Plex guide response",result.status};
+    auto metadata=mc->find("Metadata");
+    if(metadata==mc->end() && number(*mc,"size",-1)==0)return {Json{{"programs",std::move(programs)}},"",200};
+    if(metadata==mc->end() || !metadata->is_array())return {{},"Unsupported Plex guide response",result.status};
     if(mc!=result.data.end() && mc->is_object()) {
         auto metadata=mc->find("Metadata");if(metadata!=mc->end() && metadata->is_array())for(const auto &item:*metadata) {
             auto media=item.find("Media");if(media==item.end() || !media->is_array())continue;
             for(const auto &airing:*media) {
                 auto begins=number(airing,"beginsAt"),ends=number(airing,"endsAt");if(begins<=0 || ends<=begins || programs.size()>=100)continue;
+                // Apply the viewport before the cap: earlier daily airings
+                // must not displace the current page in a large Plex grid.
+                if(window_start && (ends<=window_start || begins>=window_end))continue;
                 programs.push_back({{"title",live_label(text(item,"title","Program"))},{"series",live_label(text(item,"grandparentTitle"))},{"summary",live_label(text(item,"summary"))},{"beginsAt",begins},{"endsAt",ends}});
             }
         }

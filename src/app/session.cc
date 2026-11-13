@@ -198,7 +198,7 @@ bool Session::live_tv(int offset,int64_t begins,bool refresh){
   for(const auto &date:std::vector<std::string>{first,first==last?"":last}){
    if(date.empty())continue;
    if(now()>=deadline){guide_ok=false;continue;}
-   auto response=plex::live_guide(bounded,base,token,source,date);
+   auto response=plex::live_guide(bounded,base,token,source,date,begins,model.guide.ends);
    if(response){auto entries=response.data.find("programs");if(entries!=response.data.end()&&entries->is_array())for(const auto &program:*entries)if(programs.size()<200)programs.push_back(program);}
    else {guide_ok=false;
     if(response.status==401||response.status==403){model.guide={};personal_channels=plex::Json::array();personal_loaded=0;fail("Plex guide access is no longer authorized",response.status);return false;}

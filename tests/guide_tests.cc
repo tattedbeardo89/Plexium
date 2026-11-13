@@ -24,6 +24,31 @@ int main(){
  },"fixture");
  calls=0;response=live_channels(server,"https://fixture","profile");TEST_REQUIRE(response&&flag(response.data,"configured")&&response.data["channels"].size()==1&&calls==3);
  const auto channel=response.data["channels"][0];
+ // Valid DVR discovery must not turn malformed provider/lineup data into a
+ // successful "no channels" result.
+ for(bool bad_lineup:{false,true})for(const auto &body:{"null",R"({"MediaContainer":{}})",R"({"MediaContainer":{"Channel":false,"MediaProvider":false}})"}){
+  Client malformed([&](const Request&q){
+   if(q.url.find("/livetv/dvrs")!=std::string::npos)return Reply{200,R"({"MediaContainer":{"Dvr":[{"key":"12"}]}})",""};
+   if(bad_lineup && q.url.find("/media/providers")!=std::string::npos)return Reply{200,R"({"MediaContainer":{"MediaProvider":[{"identifier":"tv.plex.providers.epg.xmltv:12"}]}})",""};
+   return Reply{200,body,""};
+  },"fixture");
+  TEST_REQUIRE(!live_channels(malformed,"https://fixture","profile"));
+ }
+ for(const auto &body:{"null","[]","true",R"({"MediaContainer":[]})",R"({"MediaContainer":{}})",R"({"MediaContainer":{"Metadata":false}})"}){
+  Client bad([&](const Request&){return Reply{200,body,""};},"fixture");
+  TEST_REQUIRE(!live_guide(bad,"https://fixture","profile",channel,"2026-11-12"));
+ }
+ for(const auto &body:{R"({"MediaContainer":{"size":0}})",R"({"MediaContainer":{"Metadata":[]}})"}){
+  Client empty_grid([&](const Request&){return Reply{200,body,""};},"fixture");
+  auto empty_programs=live_guide(empty_grid,"https://fixture","profile",channel,"2026-11-12");
+  TEST_REQUIRE(empty_programs && empty_programs.data["programs"].empty());
+ }
+ Json daily=Json::array();
+ for(int i=0;i<150;++i)daily.push_back({{"title","Past"},{"Media",Json::array({Json{{"beginsAt",100+i*10},{"endsAt",110+i*10}}})}});
+ daily.push_back({{"title","Current from Plex"},{"Media",Json::array({Json{{"beginsAt",2000},{"endsAt",3000}}})}});
+ Client large_grid([&](const Request&){return Reply{200,Json{{"MediaContainer",{{"Metadata",daily}}}}.dump(),""};},"fixture");
+ auto current=live_guide(large_grid,"https://fixture","profile",channel,"2026-11-12",2000,4000);
+ TEST_REQUIRE(current && current.data["programs"].size()==1 && text(current.data["programs"][0],"title")=="Current from Plex");
  Client guide([&](const Request&q){TEST_REQUIRE(q.url=="https://fixture/tv.plex.providers.epg.xmltv:12/grid?channelGridKey=grid1&date=2026-11-12");return Reply{200,R"({"MediaContainer":{"Metadata":[null,{"title":"Later","Media":[{"beginsAt":2000,"endsAt":3000}]},{"title":"Earlier","summary":"Supplied by Plex","Media":[{"beginsAt":1000,"endsAt":2100}]},{"title":"Invalid","Media":[{"beginsAt":3000,"endsAt":1}]}]}})",""};},"fixture");
  auto programs=live_guide(guide,"https://fixture","profile",channel,"2026-11-12");TEST_REQUIRE(programs&&programs.data["programs"].size()==2);
  auto parsed=guide_programs(programs.data,1800,2800);TEST_REQUIRE(parsed.size()==2&&parsed[0].title=="Earlier"&&parsed[0].summary=="Supplied by Plex");
