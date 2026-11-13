@@ -29,3 +29,11 @@ Auth uses device linking, validation of the restored primary account, explicit p
 The GPU artwork adapter uses a bounded asynchronous decoded-image cache inherited from the stabilization branch. Episode cards explicitly request `grandparent_thumb`, preserving the episode's own `id` for navigation/playback. GPU upload, native transport and artwork sources cross-compile for PS5, but are not exercised by host raster fixtures. Cache scope changes retire old textures. A driver-completion failure disables new uploads and retains uncertain allocations until process teardown.
 
 The original UI and protocols are GPL-3.0-or-later. Future increments should add end-to-end fixture scenarios before expanding routes. Physical firmware 13.40 validation and matching native symbols remain necessary before installation acceptance.
+
+## Rebuild branch bootstrap
+
+The new `feature/plexium-native-rebuild` branch retains the modules above and adds
+an isolated Stage 1 runtime, a checked pthread session worker and a closeable,
+bounded render-thread media queue. The native build defaults to startup-only;
+full application construction requires `PLEX_STARTUP_ONLY=0`. See
+[NATIVE-REBUILD.md](NATIVE-REBUILD.md) for exact scope, limits and hardware gates.

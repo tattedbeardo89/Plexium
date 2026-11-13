@@ -1,5 +1,15 @@
 # Plexium
 
+**Current rebuild checkpoint:** `feature/plexium-native-rebuild` retains PR #1,
+adds an isolated startup-only native mode, checked session-thread stacks and
+shutdown queues, private `/data/Plexium/` persistence/migration, and a personal
+Plex DVR guide. It is an incomplete development checkpoint. Native cross-build,
+real Plex DVR sessions and physical PS5 testing are unverified for this branch.
+The existing hardware hold remains. See [rebuild scope and release gates](docs/NATIVE-REBUILD.md).
+
+The historical build/installation claims below refer to earlier source revisions;
+they do not establish a build or hardware acceptance of this branch.
+
 **Hardware hold:** the latest 0.2 launch test was followed by reboot/safe-mode recovery. Do not install or retest 0.2. No replacement is hardware accepted. See [startup review](docs/STARTUP-AUDIT.md).
 
 **Known 0.2 installation regression:** the user reports that 0.2 does not appear in ShadowMountPlus, while restoring 0.1 works at the same path. Keep 0.1 installed. See [diagnosis](docs/SHADOWMOUNT-REGRESSION.md); 0.2 is not a confirmed hardware-compatible update.

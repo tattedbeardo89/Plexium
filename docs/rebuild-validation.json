@@ -1,0 +1,59 @@
+{
+  "code_commit": "f16b6a3b7238277921b1fabd93a4a8dd2501b972",
+  "branch": "feature/plexium-native-rebuild",
+  "client_date": "2026-11-12",
+  "checks": {
+    "host": {
+      "result": "passed",
+      "log_sha256": "802bc14a681cce4e36992e056b72da588b93b1fabf5cd67febf387e1baa4cf35",
+      "scope": "host execution; not PS5 hardware"
+    },
+    "sanitizer": {
+      "result": "passed",
+      "log_sha256": "18bf6d4df9433876b90b16fc40d0f91a4ff0f1ab77d4547185734f3052eea959",
+      "scope": "host execution; not PS5 hardware"
+    },
+    "syntax": {
+      "result": "passed",
+      "log_sha256": "22811b1b4117b2cd9a825ae54518fb32841ef2da3900ce9566289e981735c90a",
+      "scope": "host execution; not PS5 hardware"
+    },
+    "entry": {
+      "result": "passed",
+      "log_sha256": "e5a949d5d4ad5e89020c64b4ff80b54e25093971ac35c1f054e179117cb22c5d",
+      "scope": "host execution; not PS5 hardware"
+    },
+    "entry-san": {
+      "result": "passed",
+      "log_sha256": "e5a949d5d4ad5e89020c64b4ff80b54e25093971ac35c1f054e179117cb22c5d",
+      "scope": "host execution; not PS5 hardware"
+    },
+    "gfx": {
+      "result": "passed",
+      "log_sha256": "556dfd6adba395aa4a131b7fea6388540dec31ec2d3a42f0628864b3f48f5d53",
+      "scope": "host execution; not PS5 hardware"
+    },
+    "gfx-san": {
+      "result": "passed",
+      "log_sha256": "556dfd6adba395aa4a131b7fea6388540dec31ec2d3a42f0628864b3f48f5d53",
+      "scope": "host execution; not PS5 hardware"
+    },
+    "native-transport": {
+      "result": "passed",
+      "log_sha256": "fb0e95a1564c9ffc9708ecffc90d9e4e29a9daba1442ed3c82258e80ab48d78a",
+      "scope": "host execution; not PS5 hardware"
+    }
+  },
+  "native_local": {
+    "result": "blocked",
+    "reason": "PS5_VULKAN, PS5 SDK and pinned VLC/media dependencies absent; ci/build-native.sh exits before compilation"
+  },
+  "native_ci": {
+    "result": "in_progress",
+    "url": "https://github.com/tattedbeardo89/Plexium/actions/runs/43358805720"
+  },
+  "physical_ps5": "not contacted or tested",
+  "real_plex_dvr": "not tested",
+  "installation_artifact": "none validated for this code commit",
+  "hardware_hold": true
+}
