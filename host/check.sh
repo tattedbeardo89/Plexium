@@ -9,8 +9,11 @@ python3 tests/test_transport.py "$(if [[ $out == build ]]; then echo transport-p
 "./$out/plexium-render" "$out"
 python3 tests/verify_frames.py "$out"
 python3 tests/branding_tests.py
-gcc -O2 -fPIE -pie -Wall -Wextra -Werror -Isrc tests/native_imports_tests.c -o "$out/native-imports-tests"
+python3 tests/ci_diagnostics_tests.py
+cflags=(-O2 -D_FORTIFY_SOURCE=3 -Wall -Wextra -Werror)
+if [[ ${SANITIZE:-0} == 1 ]]; then cflags+=(-fsanitize=address,undefined -fno-omit-frame-pointer); fi
+gcc "${cflags[@]}" -fPIE -pie -Wall -Wextra -Werror -Isrc tests/native_imports_tests.c -o "$out/native-imports-tests"
 "./$out/native-imports-tests"
 
-gcc -O2 -Wall -Wextra -Werror -Isrc tests/startup_log_tests.c -o "$out/startup-log-tests"
+gcc "${cflags[@]}" -Isrc tests/startup_log_tests.c -o "$out/startup-log-tests"
 "./$out/startup-log-tests"

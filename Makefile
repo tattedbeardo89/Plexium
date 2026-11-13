@@ -2,7 +2,7 @@ CXX := g++
 CC := gcc
 OUT := build$(if $(filter 1,$(SANITIZE)),/san,)
 OBJ := build/obj$(if $(filter 1,$(SANITIZE)),-san,)
-CXXFLAGS := -std=c++17 -O1 -g -Wall -Wextra -Werror -Wno-misleading-indentation -Isrc -Ithird_party -Ithird_party/imgui -pthread
+CXXFLAGS := -std=c++17 -D_FORTIFY_SOURCE=3 -O1 -g -Wall -Wextra -Werror -Wno-misleading-indentation -Isrc -Ithird_party -Ithird_party/imgui -pthread
 LDFLAGS := -pthread
 ifeq ($(SANITIZE),1)
  CXXFLAGS += -fsanitize=address,undefined -fno-omit-frame-pointer

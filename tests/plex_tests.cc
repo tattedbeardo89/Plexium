@@ -1,3 +1,4 @@
+#include "check.h"
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "plex/client.h"
 #include "plex/diagnostics.h"
@@ -144,9 +145,9 @@ int main() {
     CHECK(save_credentials(file, "id", "replacement"));
     CHECK(load_credentials(file, id, token));
     CHECK(token == "replacement");
-    chmod(file.c_str(), 0644);
+    test_posix_result(chmod(file.c_str(), 0644),"chmod");
     CHECK(!load_credentials(file, id, token));
-    unlink(file.c_str());
-    rmdir(dir);
+    test_posix_result(unlink(file.c_str()),"unlink");
+    test_posix_result(rmdir(dir),"rmdir");
     std::cout << checks << " checks passed\n";
 }

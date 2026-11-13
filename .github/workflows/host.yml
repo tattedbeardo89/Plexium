@@ -19,17 +19,37 @@ jobs:
           /tmp/plexium-tools/bin/pip install -r tools/requirements.txt
           echo /tmp/plexium-tools/bin >> "$GITHUB_PATH"
       - name: Test application, protocol, TLS, rendering and identity
-        run: bash host/check.sh
+        run: python3 ci/run-check.py host bash host/check.sh
       - name: Check native sources (host syntax only)
-        run: VULKAN_HEADERS=/usr/include bash host/check-native-source.sh
+        run: VULKAN_HEADERS=/usr/include python3 ci/run-check.py native-syntax bash host/check-native-source.sh
       - name: Native startup entry failure injection (host only)
-        run: VULKAN_HEADERS=/usr/include bash host/test-native-entry.sh
+        run: VULKAN_HEADERS=/usr/include python3 ci/run-check.py native-entry bash host/test-native-entry.sh
+      - name: Filesystem setup/security tests with NDEBUG
+        run: python3 ci/run-check.py filesystem-ndebug bash host/test-filesystem-ndebug.sh
+      - name: Production native transport and Vulkan failures
+        env:
+          VULKAN_HEADERS: /usr/include
+        run: |
+          python3 ci/run-check.py native-transport bash host/test-native-transport.sh
+          python3 ci/run-check.py vulkan bash host/test-gfx-failures.sh
+          SANITIZE=1 python3 ci/run-check.py vulkan-san bash host/test-gfx-failures.sh
       - name: Sanitizers
         run: |
-          SANITIZE=1 bash host/check.sh
-          VULKAN_HEADERS=/usr/include SANITIZE=1 bash host/test-native-entry.sh
+          SANITIZE=1 python3 ci/run-check.py sanitizers bash host/check.sh
+          VULKAN_HEADERS=/usr/include SANITIZE=1 python3 ci/run-check.py native-entry-san bash host/test-native-entry.sh
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
           name: Plexium-host-frames
           path: build/*.png
+      - name: Collect bounded failure summary
+        if: failure()
+        run: python3 ci/collect-failure.py
+      - name: Upload bounded failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: Plexium-host-failure-${{ github.sha }}
+          path: artifacts/logs/
+          if-no-files-found: warn
+          retention-days: 14

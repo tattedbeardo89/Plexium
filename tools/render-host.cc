@@ -5,7 +5,7 @@
 #include <filesystem>
 #include <chrono>
 #include <iostream>
-#include <cassert>
+#include "../tests/check.h"
 using namespace plexium;
 struct Raster {
  int width=1280,height=720,tw=0,th=0;
@@ -60,36 +60,36 @@ int main(int argc,char **argv){
  frame("guide",guide_model);
  View guide_view;
  auto guide_input=[&](unsigned keys){ImGui::NewFrame();auto action=guide_view.frame(guide_model,keys,.016f);ImGui::Render();return action;};
- assert(guide_input(Cross)->action==Action::TuneChannel);
- assert(guide_input(Triangle)->id=="now"&&guide_input(R1)->id=="later"&&guide_input(L1)->id=="earlier");
- for(int i=0;i<5;++i)guide_input(Down);assert(guide_input(Down)->id=="next");
- guide_model.guide.offset=6;assert(guide_input(Up)->id=="previous");
- guide_model.guide.channels.clear();assert(!guide_input(Cross));assert(guide_input(Options)->id=="refresh");
- io.DisplaySize={3840,2160};guide_input(0);assert(ImGui::GetDrawData()->TotalVtxCount>0);io.DisplaySize={1280,720};
+ TEST_REQUIRE(guide_input(Cross)->action==Action::TuneChannel);
+ TEST_REQUIRE(guide_input(Triangle)->id=="now"&&guide_input(R1)->id=="later"&&guide_input(L1)->id=="earlier");
+ for(int i=0;i<5;++i)guide_input(Down);TEST_REQUIRE(guide_input(Down)->id=="next");
+ guide_model.guide.offset=6;TEST_REQUIRE(guide_input(Up)->id=="previous");
+ guide_model.guide.channels.clear();TEST_REQUIRE(!guide_input(Cross));TEST_REQUIRE(guide_input(Options)->id=="refresh");
+ io.DisplaySize={3840,2160};guide_input(0);TEST_REQUIRE(ImGui::GetDrawData()->TotalVtxCount>0);io.DisplaySize={1280,720};
  std::cout<<"PASS: actual native guide draw lists, six-channel page, page boundaries, time navigation, Jump to Now, empty guide and 4K layout\n";
  // Input behavior is exercised against the same view, including initial draw and focus movement.
  View view;Model blank;ImGui::NewFrame();auto result=view.frame(blank,Cross,1.f/60);ImGui::Render();if(!result||result->action!=Action::Link)return 3;
 
  Model home;home.screen=Screen::Home;home.navigation=navigation({section});auto second=item;second.id="2";home.rails={{"continueWatching","Continue Watching",true,{item,second}}};
  auto input_frame=[&](Model state,unsigned keys){ImGui::NewFrame();auto result=view.frame(state,keys,1.f/60);ImGui::Render();return result;};
- input_frame(home,Down);input_frame(home,Right);auto chosen=input_frame(home,Cross);assert(chosen&&chosen->action==Action::Details&&chosen->id=="2");
- auto detail=home;detail.screen=Screen::Details;detail.detail=second;input_frame(detail,0);auto back=input_frame(detail,Circle);assert(back&&back->action==Action::Back);
- chosen=input_frame(home,Cross);assert(chosen&&chosen->id=="2");
- input_frame(home,R1);chosen=input_frame(home,Cross);assert(chosen&&chosen->action==Action::Search);
- io.DisplaySize={3840,2160};input_frame(home,0);assert(ImGui::GetDrawData()->TotalVtxCount>0);io.DisplaySize={1280,720};
+ input_frame(home,Down);input_frame(home,Right);auto chosen=input_frame(home,Cross);TEST_REQUIRE(chosen&&chosen->action==Action::Details&&chosen->id=="2");
+ auto detail=home;detail.screen=Screen::Details;detail.detail=second;input_frame(detail,0);auto back=input_frame(detail,Circle);TEST_REQUIRE(back&&back->action==Action::Back);
+ chosen=input_frame(home,Cross);TEST_REQUIRE(chosen&&chosen->id=="2");
+ input_frame(home,R1);chosen=input_frame(home,Cross);TEST_REQUIRE(chosen&&chosen->action==Action::Search);
+ io.DisplaySize={3840,2160};input_frame(home,0);TEST_REQUIRE(ImGui::GetDrawData()->TotalVtxCount>0);io.DisplaySize={1280,720};
  std::cout<<"PASS: rail movement, correct item activation, details back, focus restoration, unified R1 registry, 4K draw construction\n";
  // Regressions for the reported console issues, using the actual shared view.
  View controls;Model playback;playback.screen=Screen::Playback;playback.detail=item;
  auto controls_frame=[&](unsigned keys,float dt){ImGui::NewFrame();auto action=controls.frame(playback,keys,dt);ImGui::Render();return action;};
- controls_frame(0,.016f);assert(controls.controls_visible());controls_frame(0,5.f);assert(!controls.controls_visible());assert(ImGui::GetDrawData()->TotalVtxCount==0);
- assert(controls_frame(Right,.016f)->action==Action::Seek&&controls.controls_visible());
- playback.paused=true;controls_frame(0,6.f);assert(controls.controls_visible());playback.paused=false;playback.buffering=true;controls_frame(0,6.f);assert(controls.controls_visible());
+ controls_frame(0,.016f);TEST_REQUIRE(controls.controls_visible());controls_frame(0,5.f);TEST_REQUIRE(!controls.controls_visible());TEST_REQUIRE(ImGui::GetDrawData()->TotalVtxCount==0);
+ TEST_REQUIRE(controls_frame(Right,.016f)->action==Action::Seek&&controls.controls_visible());
+ playback.paused=true;controls_frame(0,6.f);TEST_REQUIRE(controls.controls_visible());playback.paused=false;playback.buffering=true;controls_frame(0,6.f);TEST_REQUIRE(controls.controls_visible());
  View portraits;int avatars=0;portraits.avatar=[&](const std::string&){++avatars;return ImTextureID(0);};
- ImGui::NewFrame();portraits.frame(m,0,.016f);ImGui::Render();assert(avatars==2);
+ ImGui::NewFrame();portraits.frame(m,0,.016f);ImGui::Render();TEST_REQUIRE(avatars==2);
  View rich;Model metadata;metadata.screen=Screen::Details;metadata.detail=item;metadata.detail.credits={{"Actor One","Lead","/actor/1"},{"Actor Two","Supporting","/actor/2"}};
  int posters=0,backgrounds=0,cast_images=0;rich.image=[&](const plex::Item &i,bool wide){if(i.type=="person")++cast_images;else if(wide)++backgrounds;else ++posters;return ImTextureID(0);};
  auto rich_frame=[&](unsigned keys){ImGui::NewFrame();auto action=rich.frame(metadata,keys,.016f);ImGui::Render();return action;};
- rich_frame(0);assert(posters&&backgrounds);rich_frame(Right);rich_frame(Right);rich_frame(Cross);assert(cast_images>=2);
+ rich_frame(0);TEST_REQUIRE(posters&&backgrounds);rich_frame(Right);rich_frame(Right);rich_frame(Cross);TEST_REQUIRE(cast_images>=2);
  std::cout<<"PASS: video controls auto-hide/wake/pause, native avatar callback, detail poster/backdrop and multiple cast portraits\n";
  auto begin=std::chrono::steady_clock::now();for(int i=0;i<100;++i){ImGui::NewFrame();view.frame(m,0,1.f/60);ImGui::Render();}
  std::cout<<"PASS: 7 shared-native rendered frames; Cross activates sign-in; 100 frame construction iterations in "<<std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-begin).count()<<" ms (host only)\n";

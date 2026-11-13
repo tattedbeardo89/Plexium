@@ -47,14 +47,15 @@ jobs:
         env:
           VULKAN_HEADERS: /usr/include
         run: |
-          bash host/check.sh
-          bash host/test-native-entry.sh
-          bash host/test-gfx-failures.sh
-          SANITIZE=1 bash host/test-gfx-failures.sh
-          bash host/check-native-source.sh
-          bash host/test-native-transport.sh
-          SANITIZE=1 bash host/check.sh
-          SANITIZE=1 bash host/test-native-entry.sh
+          python3 ci/run-check.py host bash host/check.sh
+          python3 ci/run-check.py entry bash host/test-native-entry.sh
+          python3 ci/run-check.py vulkan bash host/test-gfx-failures.sh
+          SANITIZE=1 python3 ci/run-check.py vulkan-san bash host/test-gfx-failures.sh
+          python3 ci/run-check.py filesystem-ndebug bash host/test-filesystem-ndebug.sh
+          python3 ci/run-check.py syntax bash host/check-native-source.sh
+          python3 ci/run-check.py transport bash host/test-native-transport.sh
+          SANITIZE=1 python3 ci/run-check.py host-san bash host/check.sh
+          SANITIZE=1 python3 ci/run-check.py entry-san bash host/test-native-entry.sh
       - name: Restore exact native dependency cache
         id: cache
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
@@ -65,7 +66,7 @@ jobs:
         id: native
         run: |
           mkdir -p artifacts/logs
-          bash ci/hosted-native.sh 2>&1 | tee artifacts/logs/hosted-native.log
+          python3 ci/run-check.py hosted-native bash ci/hosted-native.sh
       - name: Save verified native dependency cache
         if: always() && steps.cache.outputs.cache-hit != 'true' && hashFiles('.native-cache/plexium-work/.ci-dependencies') != ''
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
@@ -129,13 +130,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash ci/upload-draft.sh
+      - name: Collect bounded failure summary
+        if: failure()
+        run: python3 ci/collect-failure.py
       - name: Upload failure diagnostics
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: Plexium-failure-${{ github.sha }}
           path: artifacts/logs/
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 90
       - name: Record bounded native failure diagnostics in the existing draft
         if: failure() && steps.native.outcome == 'failure'

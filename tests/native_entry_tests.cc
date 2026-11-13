@@ -1,10 +1,10 @@
+#include "check.h"
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Execute the actual Stage 1 entry with deterministic platform/GPU failures.
 #define PLEX_STARTUP_ONLY 1
 #define main plexium_native_main
 #include "../src/main.cc"
 #undef main
-#include <cassert>
 #include <vector>
 #include <string>
 #include <iostream>
@@ -28,8 +28,8 @@ VkCommandBuffer gfx_begin_frame(){return failure==3?VK_NULL_HANDLE:reinterpret_c
 void gfx_begin_pass(VkCommandBuffer){}
 bool gfx_end_frame(VkCommandBuffer){++frames;return failure!=4;}
 void textures_shutdown(){events.push_back("textures-stop");}
-bool player_init(){assert(false && "Stage 1 must not initialize media");return false;}
-void player_shutdown(){assert(false && "Stage 1 must not stop uninitialized media");}
+bool player_init(){TEST_REQUIRE(false && "Stage 1 must not initialize media");return false;}
+void player_shutdown(){TEST_REQUIRE(false && "Stage 1 must not stop uninitialized media");}
 bool ImGui_ImplVulkan_Init(ImGui_ImplVulkan_InitInfo*){events.push_back("ui");if(failure==2)return false;ImGui::GetIO().BackendRendererUserData=&events;return true;}
 void ImGui_ImplVulkan_NewFrame(){unsigned char *pixels;int w,h;ImGui::GetIO().Fonts->GetTexDataAsRGBA32(&pixels,&w,&h);}
 void ImGui_ImplVulkan_RenderDrawData(ImDrawData*,VkCommandBuffer,VkPipeline){}
@@ -38,14 +38,14 @@ int main(){
  for(failure=0;failure<=4;++failure){
   events.clear();clock_now=0;frames=0;
   int status=plexium_native_main();
-  assert(status==(failure==0?0:failure==1?1:failure==2?2:4));
-  assert(events.front()=="platform" && events.back()=="exit");
-  if(failure>=3){assert(ImGui::GetCurrentContext() && ImGui::GetIO().BackendRendererUserData);ImGui::GetIO().BackendRendererUserData=nullptr;ImGui::DestroyContext();}
-  else assert(!ImGui::GetCurrentContext());
+  TEST_REQUIRE(status==(failure==0?0:failure==1?1:failure==2?2:4));
+  TEST_REQUIRE(events.front()=="platform" && events.back()=="exit");
+  if(failure>=3){TEST_REQUIRE(ImGui::GetCurrentContext() && ImGui::GetIO().BackendRendererUserData);ImGui::GetIO().BackendRendererUserData=nullptr;ImGui::DestroyContext();}
+  else TEST_REQUIRE(!ImGui::GetCurrentContext());
   auto count=[&](const char *event){return std::count(events.begin(),events.end(),event);};
-  assert(count("graphics-wait")==int(failure<3));
-  assert(count("ui-stop")==int(failure==0));
-  assert(count("textures-stop")==int(failure==0));
+  TEST_REQUIRE(count("graphics-wait")==int(failure<3));
+  TEST_REQUIRE(count("ui-stop")==int(failure==0));
+  TEST_REQUIRE(count("textures-stop")==int(failure==0));
  }
  std::cout<<"PASS: actual startup-only native entry, partial initialization, frame failures, exit chord, context cleanup\n";
 }
