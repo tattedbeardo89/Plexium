@@ -37,10 +37,6 @@ jobs:
         run: |
           SANITIZE=1 python3 ci/run-check.py sanitizers bash host/check.sh
           VULKAN_HEADERS=/usr/include SANITIZE=1 python3 ci/run-check.py native-entry-san bash host/test-native-entry.sh
-      - name: Actual host VLC software playback
-        run: |
-          python3 ci/run-check.py host-vlc bash host/test-vlc-integration.sh
-          SANITIZE=1 python3 ci/run-check.py host-vlc-san bash host/test-vlc-integration.sh
       - name: Production player lifecycle injection
         env:
           VULKAN_HEADERS: /usr/include
@@ -60,6 +56,32 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: Plexium-host-failure-${{ github.sha }}
+          path: artifacts/logs/
+          if-no-files-found: warn
+          retention-days: 14
+
+  host-vlc:
+    name: Actual host VLC software playback
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Install actual codec/runtime prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ make pkg-config libvlc-dev vlc-plugin-base ffmpeg libfontconfig-dev
+      - name: Decode synthetic 1080p H.264/AAC through shared Session
+        run: |
+          python3 ci/run-check.py host-vlc bash host/test-vlc-integration.sh
+          SANITIZE=1 python3 ci/run-check.py host-vlc-san bash host/test-vlc-integration.sh
+      - name: Collect bounded failure summary
+        if: failure()
+        run: python3 ci/collect-failure.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: Plexium-host-vlc-diagnostics-${{ github.sha }}
           path: artifacts/logs/
           if-no-files-found: warn
           retention-days: 14
