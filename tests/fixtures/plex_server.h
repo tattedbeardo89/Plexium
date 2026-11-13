@@ -22,7 +22,7 @@ struct Fixture {
   if(has("/api/v2/resources"))return ok(plex::Json::array({{{"name","Fixture"},{"clientIdentifier","server"},{"provides","server"},{"accessToken","server-token"},{"connections",plex::Json::array({{{"uri","https://fixture.test"},{"local",true}}})}}}));
   if(has("/identity"))return ok({{"MediaContainer",{{"machineIdentifier","server"}}}});
   if(has("/library/sections"))return ok({{"MediaContainer",{{"Directory",plex::Json::array({{{"key","1"},{"title","Movies"},{"type","movie"}}})}}}});
-  if(has("/library/metadata/1")&&!has("/related"))return ok({{"MediaContainer",{{"Metadata",plex::Json::array({metadata})}}}});
+  if(has("/library/metadata/")&&!has("/related"))return ok({{"MediaContainer",{{"Metadata",plex::Json::array({metadata})}}}});
   return ok({{"MediaContainer",{{"Metadata",plex::Json::array()}}}});
  }
 };

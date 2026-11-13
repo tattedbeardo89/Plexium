@@ -423,13 +423,13 @@ __attribute__((noinline)) const Model &Session::dispatch_current(const Command &
  case Action::Audio:if(model.screen==Screen::Playback)player.audio_next();break;
  case Action::Subtitle:if(model.screen==Screen::Playback)player.subtitle_next();break;
  case Action::Tick:
-  flush_progress();
+  if(model.screen!=Screen::Playback)flush_progress();
   if(model.screen==Screen::Playback){
    model.detail.offset=player.position();model.paused=player.paused();auto observed=player.observe();
    if(observed.failed){model.playback_state=PlaybackState::Error;model.message="Player decoding failed; stop and retry with a different quality.";}
    else if(observed.buffering)model.playback_state=PlaybackState::Buffering;
    else if(observed.playing||observed.paused){playback_started=true;model.playback_state=observed.paused?PlaybackState::Paused:PlaybackState::Playing;}
-   if(!observed.failed&&(playback_started||!observed.known))report_progress(model.paused?"paused":"playing",model.detail.offset);
+   if(!observed.failed&&(playback_started||!observed.known))report_progress(model.paused?"paused":"playing",model.detail.offset);else flush_progress();
    if(!stream.session.empty()&&now()>=heartbeat_at){auto bounded=client.bounded(500,1000);if(!plex::stream_control(bounded,stream_base,stream_token,stream.session,false))model.message="Plex streaming heartbeat failed; playback may need to reconnect.";heartbeat_at=now()+10;}
   }break;
  case Action::Settings:if(history.size()>=16)history.erase(history.begin());history.push_back(model);model.screen=Screen::Settings;break;

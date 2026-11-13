@@ -44,6 +44,11 @@ int main(){
  fixture.video="copy";fixture.audio="transcode";auto plan=plex::negotiate_video(client,"https://fixture.test","server-token",item,1,plex::Quality::FHD,true,"session");TEST_REQUIRE(plan.playback.mode==plex::Mode::Transcode);
  TEST_REQUIRE(plex::negotiate_video(client,"https://fixture.test","server-token",item,8,plex::Quality::Original,true,"session").playback.mode==plex::Mode::Unsupported);
  TEST_REQUIRE(!plex::stream_control(client,"https://fixture.test","server-token","bad&session",true));
+ // Several failed titles cannot multiply per-dispatch network wait budgets.
+ fixture.outage=true;engine.reject=false;engine.observation={true,true,false,false,false,false};
+ for(const char *id:{"2","3"}){fixture.metadata["ratingKey"]=id;fixture.metadata["key"]=std::string("/library/metadata/")+id;send(Action::Details,id);send(Action::Play);send(Action::Tick);send(Action::Stop);}
+ fixture.metadata["ratingKey"]="4";fixture.metadata["key"]="/library/metadata/4";send(Action::Details,"4");send(Action::Play);clock+=100;
+ auto budget=fixture.timelines;send(Action::Tick);TEST_REQUIRE(fixture.timelines-budget==2);fixture.outage=false;send(Action::Stop);
  send(Action::SignOut);auto count=fixture.timelines;send(Action::Tick);TEST_REQUIRE(fixture.timelines==count);
  std::filesystem::remove_all(root);std::cout<<"PASS: production session negotiation, versions, Direct Play/Stream/transcode, state observations, timeline failures, retained lease retry and profile isolation\n";
 }
