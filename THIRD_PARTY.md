@@ -27,3 +27,8 @@ Local ImGui Vulkan backend changes check initialization allocations, preserve
 partial-pipeline cleanup, and unwind failed initialization without an assertion.
 They are covered by production-backend fault injection; see
 `docs/STARTUP-LIFECYCLE-REVIEW.md`. Upstream MIT attribution remains unchanged.
+
+Further local backend changes own font staging/fences, bound upload completion,
+and reject vertex/index allocation/mapping failures before invalid draws. The
+original MIT notices remain; see `docs/GPU-MEDIA-LIFECYCLE.md` for ownership,
+failure injection and remaining unverified platform contracts.

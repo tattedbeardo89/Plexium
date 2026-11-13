@@ -1,5 +1,11 @@
 # Architecture
 
+The current ownership/teardown contract is recorded in
+[GPU-MEDIA-LIFECYCLE.md](GPU-MEDIA-LIFECYCLE.md). It supersedes earlier notes
+about device-idle waits, detached player work and deferred video teardown.
+Reachable uploads/drains use bounded fences; unresolved workers or presentation
+ownership retain their state and produce incomplete shutdown, not success.
+
 Plexium is an independent C++17 application with a new history. The old PlexStation main loop, media browser and ImGui UI were not imported. GPL-compatible protocol helpers and the proven low-level VLC/Vulkan/PS5 substrate were selected explicitly. No Jelly5 implementation, assets or Jellyfin protocols were copied.
 
 ```mermaid

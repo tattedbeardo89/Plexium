@@ -1,5 +1,11 @@
 # Native rebuild checkpoint — 2026-11-12
 
+Current lifecycle implementation and remaining gates:
+[GPU-MEDIA-LIFECYCLE.md](GPU-MEDIA-LIFECYCLE.md). Historical limitations below
+describe earlier checkpoints. The new source adds bounded GPU upload/drain
+waits, explicit video/audio release, owned media workers and timed session/art
+close. PS5 presentation completion and physical acceptance remain unverified.
+
 Branch: `feature/plexium-native-rebuild`. Base: PR #1 head
 `d2b5e7cc01aa4162375e938e6ec1e0e9beeb96fe`; `main` is an empty review baseline.
 This checkpoint retains history and does not merge or modify PR #1.

@@ -1,5 +1,12 @@
 # Plexium Stage 1 investigation candidate — HARDWARE HOLD
 
+The GPU/media lifecycle milestone deliberately retains WSI/device ownership
+when display-engine presentation completion cannot be proven. A future manual
+Stage 1 exit can therefore log incomplete cleanup/status 4. That is an explicit
+ownership hold, not proof of a clean shutdown or attribution of the original
+reboot. Do not install or reproduce a failure to test it. See
+[GPU-MEDIA-LIFECYCLE.md](GPU-MEDIA-LIFECYCLE.md).
+
 This archive is a native startup diagnostics candidate, not the complete Plex
 client. No account, artwork, VLC player or hardware decoder is initialized.
 It displays renderer/controller status and exits after holding Options + Circle
