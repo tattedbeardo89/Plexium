@@ -20,11 +20,15 @@ send=reservation('_ZN7plexium7Runtime4sendENS_7CommandE',optional=startup_only) 
 # The new wrapper is intentionally noinline. Include both reservations, rather
 # than silently shrinking the measured entry path to main's tiny wrapper.
 wrapper=main;main+=bootstrap
+controller=reservation('plat_pad_read')
 r={'startup_only':startup_only,'entry_wrapper_bytes':wrapper,'bootstrap_bytes':bootstrap,'main_reservation_bytes':main,'shared_view_reservation_bytes':view,'combined_reservations_bytes':main+view,
    'send_reservation_bytes':send,'main_send_combined_reservations_bytes':main+send,'working_01_main_send_combined_bytes':4696,'worker_reservation_bytes':worker,'dispatch_reservation_bytes':dispatch,'worker_combined_reservations_bytes':worker+dispatch,'working_01_worker_combined_bytes':2272,
    'working_01_main_bytes':3744,'working_01_shared_view_bytes':1480,'working_01_combined_bytes':5224,
    'scope':'immediate stack reservations; excludes callee stacks and saved registers; no hardware acceptance'}
 assert main+view<=5224, 'Startup frame reservations exceed the working 0.1 comparison: '+str(r)
+r['controller_poll_reservation_bytes']=controller
+r['main_controller_combined_reservations_bytes']=main+controller
+assert main+controller<=5224,'Entry/controller immediate reservations exceed startup budget: '+str(r)
 assert main+send<=4696,'Entry/dispatch frame reservations exceed working 0.1: '+str(r)
 assert worker+dispatch<=2272,'Worker startup frame reservations exceed the working 0.1 comparison: '+str(r)
 r['comparison']='passed';out.write_text(json.dumps(r,indent=2)+'\n');print('PASS: native startup frame reservations',main,view,'combined',main+view,'<= working 0.1',5224)

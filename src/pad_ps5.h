@@ -96,7 +96,10 @@ bool plat_pad_read(PadState *state)
     }
     if (pad_handle < 0)
         return false;
-    PadSample samples[64];
+    // This backend is owned by the render thread (as are its existing static
+    // sample/navigation fields). Keep the 7,680-byte bounded poll buffer off
+    // the native entry stack, including the first hidden startup frames.
+    static PadSample samples[64];
     int n = scePadRead(pad_handle, samples, 64);
     ++polls;
     if (n < 0 || n > 64) {

@@ -78,6 +78,13 @@ occur during hidden rendering/font upload.
    artwork before UI/player teardown. Artwork cancellation is cooperative at
    request/decode boundaries; shutdown never schedules maintenance/uploads.
    Texture allocations remain owned by the native texture manager until idle.
+5. The first controller poll previously put a 64 by 120-byte sample array
+   (7,680 bytes) on the entry thread's stack, beyond the reported main/bootstrap
+   frame alone. It now uses one bounded render-thread-owned static poll buffer;
+   the existing pad backend already has single-thread static ownership. Native
+   stack reporting now measures `plat_pad_read` and the entry/controller pair,
+   with the same 5,224-byte immediate startup budget. This is another concrete
+   stack reduction, not proof that the original native stack overflowed.
 
 The MIT ImGui backend modification is local; its license and upstream attribution
 remain. No reference implementation or alternate media backend was imported.
