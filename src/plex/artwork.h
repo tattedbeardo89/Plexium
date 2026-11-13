@@ -6,6 +6,7 @@
 #include <memory>
 #include "imgui.h"
 #include <future>
+#include "runtime/task.h"
 #include <vector>
 namespace plex {
 class Artwork {
@@ -26,7 +27,7 @@ class Artwork {
         std::string failure;
         unsigned request_id=0,attempt=1;
     };
-    std::future<Decoded> pending,media_pending,avatar_pending;
+    plexium::Task<Decoded> pending,media_pending,avatar_pending;
     std::optional<Decoded> ready;
     DiskCache disk,avatar_disk;
     std::string pending_key,media_pending_key,avatar_pending_key;
@@ -35,6 +36,7 @@ class Artwork {
     std::shared_ptr<Stats> stats=std::make_shared<Stats>();
     std::optional<DiskCache> clear_target;
     bool trim_disk_pending=false;
+    uint64_t maintenance_retry=0;
     size_t gpu_bytes=0;
     static constexpr size_t gpu_budget=64u*1024*1024;
     std::vector<Entry> entries;

@@ -29,10 +29,11 @@ void Artwork::update() {
     for(auto texture:retired)library_free_image(texture);
     retired.clear();
     ++frame;
-    if((clear_target || trim_disk_pending) && !pending.valid() && !ready) {
+    if((clear_target || trim_disk_pending) && frame>=maintenance_retry && !pending.valid() && !ready) {
         bool erase=clear_target.has_value();auto cache=erase?*clear_target:disk;auto state=stats;
-        clear_target.reset();trim_disk_pending=false;
-        pending=std::async(std::launch::async,[cache,state,erase]{if(erase)cache.clear_scope();else cache.trim();state->bytes=cache.usage();return Decoded{};});
+        int rc=pending.start([cache,state,erase]{if(erase)cache.clear_scope();else cache.trim();state->bytes=cache.usage();return Decoded{};});
+        if(!rc){clear_target.reset();trim_disk_pending=false;}
+        else {maintenance_retry=frame+300;fprintf(stderr,"artwork: maintenance worker start failed code=%d\n",rc);}
     }
     if(!ready) {
         if(avatar_pending.valid() && avatar_pending.wait_for(std::chrono::milliseconds(0))==std::future_status::ready)ready=avatar_pending.get();
@@ -150,7 +151,7 @@ ImTextureID Artwork::request_image(const Request &request,const std::string &key
     bool decode=!diagnostic(NoDecode);
     checkpoint(11,"artwork schedule");
     if(home_active)home_checkpoint(10,"first Home artwork scheduled");
-    lane = std::async(std::launch::async, [network, request, key, epoch, decode, avatar_image,cache,state,attempt] {
+    int rc=lane.start([network, request, key, epoch, decode, avatar_image,cache,state,attempt] {
         Decoded out;
         static std::atomic<unsigned> serial{0};out.request_id=++serial;
         out.key = key;out.attempt=attempt;
@@ -237,6 +238,12 @@ ImTextureID Artwork::request_image(const Request &request,const std::string &key
         stbi_image_free(decoded);
         return out;
     });
+    if(rc){
+        ++stats->decode_failures;
+        fprintf(stderr,"artwork: image worker start failed code=%d\n",rc);
+        Decoded failed;failed.key=key;failed.generation=epoch;failed.attempt=attempt;
+        failed.failure="Image worker unavailable";ready=std::move(failed);
+    }
     return 0;
 }
 std::string Artwork::diagnostics() const {

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "runtime/worker.h"
 #include "runtime/render_queue.h"
+#include "runtime/task.h"
 #include <thread>
 #include <vector>
 #include <iostream>
@@ -14,6 +15,22 @@ int main(){
  TEST_REQUIRE(worker.start(entry,&calls)==0);TEST_REQUIRE(worker.start(entry,&calls)==EBUSY);
  TEST_REQUIRE(worker.join()==0 && calls==1);TEST_REQUIRE(worker.join()==0);
  TEST_REQUIRE(worker.start(entry,&calls)==0);TEST_REQUIRE(worker.join()==0 && calls==2);
+ // Failed creation leaves no result or callback live; a lane may be reused.
+ Task<int> task;
+ TEST_REQUIRE(task.start([&]{++calls;return 1;},1024)==EINVAL);
+ TEST_REQUIRE(!task.valid() && calls==2);
+ TEST_REQUIRE(task.start([]{return 42;})==0);
+ TEST_REQUIRE(task.start([]{return 99;})==EBUSY);
+ TEST_REQUIRE(task.get()==42 && !task.valid());
+ TEST_REQUIRE(task.start([]{return 7;})==0 && task.get()==7);
+ // Teardown must wait for work referencing its owner, rather than detach it.
+ std::atomic<bool> entered{false},release{false};
+ auto owner=std::async(std::launch::async,[&]{Task<int> joining;
+  TEST_REQUIRE(joining.start([&]{entered=true;while(!release)std::this_thread::yield();++calls;return 0;})==0);
+ });
+ while(!entered)std::this_thread::yield();
+ TEST_REQUIRE(owner.wait_for(std::chrono::milliseconds(20))==std::future_status::timeout);
+ release=true;owner.get();TEST_REQUIRE(calls==3);
  RenderQueue queue;std::atomic<int> executed{0};
  auto caller=std::async(std::launch::async,[&]{return queue.invoke([&]{++executed;return int64_t(42);});});
  while(!queue.size())std::this_thread::yield();queue.pump();TEST_REQUIRE(caller.get()==42 && executed==1);

@@ -11,9 +11,13 @@ endif
 CORE := $(OBJ)/src/plex/client.o $(OBJ)/third_party/tinyxml2/tinyxml2.o
 APP := $(OBJ)/src/app/session.o
 IMGUI := $(addprefix $(OBJ)/third_party/imgui/,$(addsuffix .o,imgui imgui_draw imgui_widgets imgui_tables))
-SUITES := session-restore-tests state-tests guide-tests startup-runtime-tests runtime-tests session-tests protocol-tests auth-tests home-tests home-feed-tests
+SUITES := artwork-tests session-restore-tests state-tests guide-tests startup-runtime-tests runtime-tests session-tests protocol-tests auth-tests home-tests home-feed-tests
 .PHONY: all test clean
 all: $(addprefix $(OUT)/,$(SUITES)) $(OUT)/plexium-render $(OUT)/transport-probe $(OUT)/plexium-cli
+$(OUT)/artwork-tests: $(CORE) $(OBJ)/src/plex/artwork.o $(OBJ)/tests/artwork_tests.o
+	@mkdir -p $(dir $@)
+	$(CXX) $^ $(LDFLAGS) $(shell pkg-config --libs gnutls) -o $@
+$(OBJ)/src/plex/artwork.o $(OBJ)/tests/artwork_tests.o: CXXFLAGS += -Ithird_party/stb $(shell pkg-config --cflags gnutls)
 $(OBJ)/%.o: %.cc
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
