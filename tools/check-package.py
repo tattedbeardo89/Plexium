@@ -15,6 +15,9 @@ assert m['titleId']=='PPSA85421' and m['localizedParameters']['en-US']['titleNam
 assert m['contentId'].split('-')[1].split('_')[0]==m['titleId']
 eboot=(root/'eboot.bin').read_bytes()
 assert len(eboot)>1024*1024 and struct.unpack('<I',eboot[:4])[0]==0x1D3D154F, 'Missing/invalid signed SELF'
+font=(root/'fonts/Inter-Regular.ttf').read_bytes()
+assert font[:4] in (b'\x00\x01\x00\x00',b'OTTO'), 'Invalid UI font header'
+assert hashlib.sha256(font).digest()==hashlib.sha256(Path('assets/fonts/Inter-Regular.ttf').read_bytes()).digest(), 'Packaged UI font differs from reviewed source'
 icon=(root/'sce_sys/icon0.png').read_bytes();assert icon[:8]==b'\x89PNG\r\n\x1a\n' and struct.unpack_from('>II',icon,16)==(512,512)
 assert hashlib.sha256(icon).digest()==hashlib.sha256(Path('ps5/sce_sys/icon0.png').read_bytes()).digest()
 for name in ['pic0.dds','pic1.dds']:

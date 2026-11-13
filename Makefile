@@ -11,7 +11,7 @@ endif
 CORE := $(OBJ)/src/plex/client.o $(OBJ)/third_party/tinyxml2/tinyxml2.o
 APP := $(OBJ)/src/app/session.o
 IMGUI := $(addprefix $(OBJ)/third_party/imgui/,$(addsuffix .o,imgui imgui_draw imgui_widgets imgui_tables))
-SUITES := state-tests guide-tests startup-runtime-tests runtime-tests session-tests protocol-tests auth-tests home-tests home-feed-tests
+SUITES := session-restore-tests state-tests guide-tests startup-runtime-tests runtime-tests session-tests protocol-tests auth-tests home-tests home-feed-tests
 .PHONY: all test clean
 all: $(addprefix $(OUT)/,$(SUITES)) $(OUT)/plexium-render $(OUT)/transport-probe $(OUT)/plexium-cli
 $(OBJ)/%.o: %.cc
@@ -23,6 +23,9 @@ $(OBJ)/%.o: %.cpp
 $(OBJ)/qrcodegen.o: third_party/qrcodegen/qrcodegen.c
 	@mkdir -p $(dir $@)
 	$(CC) -O1 -g -c $< -o $@
+$(OUT)/session-restore-tests: $(CORE) $(APP) $(OBJ)/tests/session_restore_tests.o
+	@mkdir -p $(dir $@)
+	$(CXX) $^ $(LDFLAGS) -o $@
 $(OUT)/state-tests: $(CORE) $(OBJ)/tests/state_tests.o
 	@mkdir -p $(dir $@)
 	$(CXX) $^ $(LDFLAGS) -o $@

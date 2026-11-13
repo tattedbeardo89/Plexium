@@ -5,7 +5,9 @@ adds an isolated startup-only native mode, checked session-thread stacks and
 shutdown queues, private `/data/Plexium/` persistence/migration, and a personal
 Plex DVR guide. It is an incomplete development checkpoint. Native cross-build,
 real Plex DVR sessions and physical PS5 testing are unverified for this branch.
-The existing hardware hold remains. See [rebuild scope and release gates](docs/NATIVE-REBUILD.md).
+The existing hardware hold remains. The [CI-repair follow-up](docs/CI-REPAIR.md)
+adds always-on tests, account-scoped session restoration, cached-guide outage
+handling and gated Stage 1 artifact finalization. See [rebuild scope and release gates](docs/NATIVE-REBUILD.md).
 
 The historical build/installation claims below refer to earlier source revisions;
 they do not establish a build or hardware acceptance of this branch.

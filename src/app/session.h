@@ -52,7 +52,7 @@ class PlaybackPort {
 // All network/storage/player operations execute on one worker, never the render thread.
 class Session {
  plex::Client client;
- std::string root,device,account,active,base,token,server_id,current_profile;
+ std::string root,device,account,account_id,active,base,token,server_id,current_profile;
  std::vector<plex::Server> resources;
  plex::AuthSession auth;
  Model model;
@@ -70,7 +70,8 @@ class Session {
  double personal_loaded=0;
  double now() const;
  void fail(const char*,int=0);
- bool profiles();
+ bool profiles(bool restore_saved=false);
+ bool select_profile(const std::string&,const std::string&);
  bool discover();
  bool connect(const std::string&);
  bool home(bool refresh=false);

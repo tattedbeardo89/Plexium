@@ -118,8 +118,9 @@ old account tokens. Caches regenerate. Legacy title-folder `prefs.txt` is not
 imported; legacy playback preferences must be set again. Token protection uses
 0700 directories/0600 files, not encryption or a verified PS5 keystore.
 
-Automatic restoration of the selected unprotected Home profile is still missing;
-protected profiles continue to require PIN selection. Manual server entry/local
+The CI-repair follow-up implements account-scoped restoration of a selected
+unprotected Home profile with fresh authorization and machineIdentifier checks;
+protected profiles continue to require PIN selection. See `CI-REPAIR.md`. Manual server entry/local
 broadcast discovery, full quality/transcoding negotiation, subtitle styling,
 queues, expanded settings and modern TV-client feature parity remain incomplete.
 

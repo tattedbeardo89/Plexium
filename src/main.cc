@@ -48,6 +48,7 @@ struct Application {
  plexium::Model model;
  plexium::MediaContext access;
  std::string art_scope;
+ ~Application(){player.close();}
 };
 unsigned buttons(uint32_t p){using namespace plexium;unsigned out=0;const uint32_t raw[]={PAD_UP,PAD_DOWN,PAD_LEFT,PAD_RIGHT,PAD_CROSS,PAD_CIRCLE,PAD_L1,PAD_R1,PAD_OPTIONS,PAD_TRIANGLE};for(unsigned i=0;i<10;++i)if(p&raw[i])out|=1u<<i;return out;}
 #endif
@@ -57,8 +58,9 @@ namespace {
 // GPU completion must be established before destroying descriptors. A failed
 // frame leaves uncertain driver allocations to process teardown.
 struct NativeLifetime {
- bool graphics=false,context=false,backend=false,player=false,gpu_failed=false;
- ~NativeLifetime(){
+ bool graphics=false,context=false,backend=false,player=false,gpu_failed=false,finished=false;
+ bool shutdown(){
+  if(finished)return !gpu_failed;finished=true;
   if(player){startup("stopping player");player_shutdown();}
   if(!gpu_failed && graphics && !gfx_shutdown())gpu_failed=true;
   if(!gpu_failed && backend){textures_shutdown();ImGui_ImplVulkan_Shutdown();}
@@ -66,8 +68,10 @@ struct NativeLifetime {
   // ImGui asserts if its renderer backend is still attached. Do not invoke
   // backend destruction after uncertain GPU completion just to clear that flag.
   if(context && !(gpu_failed&&backend))ImGui::DestroyContext();
-  startup("shutdown complete");
+  startup("shutdown complete");return !gpu_failed;
  }
+ int finish(int result){bool clean=shutdown();return result?result:(clean?0:4);}
+ ~NativeLifetime(){shutdown();}
 };
 bool exit_requested(const PadState &pad,double now,double &since){
  constexpr uint32_t chord=PAD_OPTIONS|PAD_CIRCLE;
@@ -78,12 +82,12 @@ bool exit_requested(const PadState &pad,double now,double &since){
 __attribute__((noinline)) static int run_native(){
  NativeLifetime lifetime;
  plat_init();startup("platform ready");lifetime.graphics=true;
- if(!gfx_init())return 1;startup("graphics ready");
+ if(!gfx_init())return lifetime.finish(1);startup("graphics ready");
  IMGUI_CHECKVERSION();ImGui::CreateContext();lifetime.context=true;auto &io=ImGui::GetIO();io.IniFilename=nullptr;io.LogFilename=nullptr;io.DisplaySize={float(gfx.width),float(gfx.height)};
  std::string font=std::string(plat_data_dir())+"/fonts/Inter-Regular.ttf";if(FILE *file=std::fopen(font.c_str(),"rb")){std::fclose(file);io.Fonts->AddFontFromFileTTF(font.c_str(),32);}
  else {startup("font unavailable: using built-in font");io.Fonts->AddFontDefault();}
  ImGui_ImplVulkan_InitInfo init{};init.ApiVersion=VK_API_VERSION_1_1;init.Instance=gfx.instance;init.PhysicalDevice=gfx.gpu;init.Device=gfx.device;init.QueueFamily=gfx.queue_family;init.Queue=gfx.queue;init.DescriptorPoolSize=2048;init.MinImageCount=2;init.ImageCount=std::max(2u,gfx.image_count);init.PipelineInfoMain.RenderPass=gfx.render_pass;init.PipelineInfoMain.MSAASamples=VK_SAMPLE_COUNT_1_BIT;
- if(!ImGui_ImplVulkan_Init(&init))return 2;
+ if(!ImGui_ImplVulkan_Init(&init))return lifetime.finish(2);
  lifetime.backend=true;
  startup("UI ready");
 #if PLEX_STARTUP_ONLY
@@ -102,20 +106,18 @@ __attribute__((noinline)) static int run_native(){
   ImGui::Text("Controller: %s",pad.connected?"connected":"unavailable");
   ImGui::Text("Frames: %llu",(unsigned long long)gfx.frame_number);
   ImGui::End();ImGui::Render();
-  auto cmd=gfx_begin_frame();if(!cmd){lifetime.gpu_failed=true;return 4;}
+  auto cmd=gfx_begin_frame();if(!cmd){lifetime.gpu_failed=true;return lifetime.finish(4);}
   gfx_begin_pass(cmd);ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(),cmd);
-  if(!gfx_end_frame(cmd)){lifetime.gpu_failed=true;return 4;}
+  if(!gfx_end_frame(cmd)){lifetime.gpu_failed=true;return lifetime.finish(4);}
   if(gfx.frame_number==3)plat_hide_splash();
  }
- return 0;
+ return lifetime.finish(0);
 #else
- lifetime.player=true;if(!player_init())return 3;startup("player ready");
+ lifetime.player=true;if(!player_init())return lifetime.finish(3);startup("player ready");
  auto application=std::make_unique<Application>();
  auto &player=application->player;auto &view=application->view;auto &artwork=application->artwork;
  auto &runtime=application->runtime;auto &model=application->model;auto &access=application->access;auto &art_scope=application->art_scope;
- if(!runtime.ready()){std::fprintf(stderr,"Plexium startup: session worker failed (%d)\n",runtime.start_error());return 5;}
- // Declared after Application: reject player operations before Runtime joins.
- struct ClosePlayer {NativePlayer &player;~ClosePlayer(){player.close();}} close_player{player};
+ if(!runtime.ready()){std::fprintf(stderr,"Plexium startup: session worker failed (%d)\n",runtime.start_error());application.reset();return lifetime.finish(5);}
  startup("session ready");runtime.send({plexium::Action::Restore,{},{}});
  double last=plat_time(),poll=last,timeline=last,exit_since=last;uint32_t previous=0;
  for(;;){
@@ -136,17 +138,17 @@ __attribute__((noinline)) static int run_native(){
   if(model.screen==plexium::Screen::Playback&&player_ended()&&!model.busy)runtime.send({plexium::Action::Stop,"ended",{}});
   ImGui_ImplVulkan_NewFrame();io.DisplaySize={float(gfx.width),float(gfx.height)};io.DeltaTime=dt;ImGui::NewFrame();
   auto action=view.frame(model,pressed,dt);if(action){if(action->action==plexium::Action::Stop){action->text=std::to_string(player_time());player_stop();}runtime.send(*action);}ImGui::Render();
-  auto cmd=gfx_begin_frame();if(!cmd){lifetime.gpu_failed=true;return 4;}
+  auto cmd=gfx_begin_frame();if(!cmd){lifetime.gpu_failed=true;application.reset();return lifetime.finish(4);}
   video_upload(cmd);bool playing=model.screen==plexium::Screen::Playback&&model.detail.type!="track";
   video_prepare(cmd,playing?float(gfx.width):0,playing?float(gfx.height):0);gfx_begin_pass(cmd);
   if(playing){float aspect=video_picture_aspect();float w=float(gfx.width),h=aspect>0?w/aspect:float(gfx.height);if(h>gfx.height){h=float(gfx.height);w=h*aspect;}video_draw(cmd,(gfx.width-w)/2,(gfx.height-h)/2,w,h);}
-  ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(),cmd);if(!gfx_end_frame(cmd)){lifetime.gpu_failed=true;return 4;}
+  ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(),cmd);if(!gfx_end_frame(cmd)){lifetime.gpu_failed=true;application.reset();return lifetime.finish(4);}
   if(gfx.frame_number==3)plat_hide_splash();
  }
  artwork.clear();
  // clear retires textures; release them only with established frame completion.
  if(!lifetime.gpu_failed)artwork.update();
- return 0;
+ application.reset();return lifetime.finish(0);
 #endif
 }
 

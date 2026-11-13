@@ -20,7 +20,7 @@ permissions:
   contents: read
 concurrency:
   group: plexium-native-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   native:
     runs-on: ubuntu-24.04
@@ -78,7 +78,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: Plexium-PPSA85421-${{ github.sha }}
-          path: artifacts/Plexium-PPSA85421.zip
+          path: artifacts/Plexium-*-stage1.*.zip
           if-no-files-found: error
           retention-days: 90
           compression-level: 0
@@ -110,6 +110,7 @@ jobs:
           path: |
             artifacts/SHA256SUMS
             artifacts/native-validation.json
+            artifacts/build-manifest.json
             artifacts/INSTALLATION.md
             artifacts/DELIVERY.md
           if-no-files-found: error

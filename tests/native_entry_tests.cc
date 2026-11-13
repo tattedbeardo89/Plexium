@@ -16,14 +16,14 @@ double clock_now=0;
 }
 extern "C" {
 void plat_init(){events.push_back("platform");}
-const char *plat_data_dir(){return "assets";}
+const char *plat_data_dir(){return failure==6?"/nonexistent-plexium-font-fixture":"assets";}
 void plat_quit(){events.push_back("exit");}
 double plat_time(){return clock_now+=.6;}
 bool plat_pad_read(PadState *p){p->connected=true;p->buttons=PAD_OPTIONS|PAD_CIRCLE;return true;}
 void plat_hide_splash(){}
 }
 bool gfx_init(){events.push_back("graphics");gfx.width=1280;gfx.height=720;gfx.image_count=2;return failure!=1;}
-bool gfx_shutdown(){events.push_back("graphics-wait");return true;}
+bool gfx_shutdown(){events.push_back("graphics-wait");return failure!=5;}
 VkCommandBuffer gfx_begin_frame(){return failure==3?VK_NULL_HANDLE:reinterpret_cast<VkCommandBuffer>(1);}
 void gfx_begin_pass(VkCommandBuffer){}
 bool gfx_end_frame(VkCommandBuffer){++frames;return failure!=4;}
@@ -35,17 +35,17 @@ void ImGui_ImplVulkan_NewFrame(){unsigned char *pixels;int w,h;ImGui::GetIO().Fo
 void ImGui_ImplVulkan_RenderDrawData(ImDrawData*,VkCommandBuffer,VkPipeline){}
 void ImGui_ImplVulkan_Shutdown(){events.push_back("ui-stop");ImGui::GetIO().BackendRendererUserData=nullptr;}
 int main(){
- for(failure=0;failure<=4;++failure){
+ for(failure=0;failure<=6;++failure){
   events.clear();clock_now=0;frames=0;
   int status=plexium_native_main();
-  TEST_REQUIRE(status==(failure==0?0:failure==1?1:failure==2?2:4));
+  TEST_REQUIRE(status==(failure==0||failure==6?0:failure==1?1:failure==2?2:4));
   TEST_REQUIRE(events.front()=="platform" && events.back()=="exit");
-  if(failure>=3){TEST_REQUIRE(ImGui::GetCurrentContext() && ImGui::GetIO().BackendRendererUserData);ImGui::GetIO().BackendRendererUserData=nullptr;ImGui::DestroyContext();}
+  if(failure>=3&&failure<=5){TEST_REQUIRE(ImGui::GetCurrentContext() && ImGui::GetIO().BackendRendererUserData);ImGui::GetIO().BackendRendererUserData=nullptr;ImGui::DestroyContext();}
   else TEST_REQUIRE(!ImGui::GetCurrentContext());
   auto count=[&](const char *event){return std::count(events.begin(),events.end(),event);};
-  TEST_REQUIRE(count("graphics-wait")==int(failure<3));
-  TEST_REQUIRE(count("ui-stop")==int(failure==0));
-  TEST_REQUIRE(count("textures-stop")==int(failure==0));
+  TEST_REQUIRE(count("graphics-wait")==int(failure<3||failure>=5));
+  TEST_REQUIRE(count("ui-stop")==int(failure==0||failure==6));
+  TEST_REQUIRE(count("textures-stop")==int(failure==0||failure==6));
  }
  std::cout<<"PASS: actual startup-only native entry, partial initialization, frame failures, exit chord, context cleanup\n";
 }

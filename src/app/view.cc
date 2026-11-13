@@ -113,7 +113,7 @@ __attribute__((noinline)) std::optional<Command> View::details_frame(const Model
 }
 __attribute__((noinline)) std::optional<Command> View::guide_frame(const Model&m,unsigned keys,Canvas&c){
  const auto &guide=m.guide;
- c.text(100,155,"Live TV",50);c.text(105,220,m.server_name+" · "+m.profile_name,25,c.muted);
+ c.text(100,155,guide.stale?"Live TV · Cached":"Live TV",50);c.text(105,220,m.server_name+" · "+m.profile_name,25,c.muted);
  c.text(1510,75,plex::guide_time(std::time(nullptr)),32);
  if(keys&Options)return command(Action::GuidePage,"refresh");
  if(keys&Triangle)return command(Action::GuidePage,"now");

@@ -25,6 +25,7 @@ int main(){
   if(q.url.find("/livetv/dvrs")!=std::string::npos){
    TEST_REQUIRE(q.headers.at("X-Plex-Token")=="server-token");
    if(dvr_mode==2)return plex::Reply{403,"{}",""};
+   if(dvr_mode==3)return plex::Reply{503,"{}",""};
    if(dvr_mode==0)return reply({{"MediaContainer",{{"size",0}}}});
    return reply(plex::Json::parse(R"({"MediaContainer":{"Dvr":[{"key":"12"}]}})"));
   }
@@ -68,6 +69,8 @@ int main(){
  dvr_mode=1;m=session.dispatch({Action::LiveTV,{},"refresh"});TEST_REQUIRE(m.guide.configured&&m.guide.total==2&&m.guide.channels.front().number=="2");
  before=requests;auto opened=player.opened;m=session.dispatch({Action::TuneChannel,"channel2",{}});TEST_REQUIRE(requests==before&&player.opened==opened&&!m.message.empty());
  auto begins=m.guide.begins;m=session.dispatch({Action::GuidePage,"later",{}});TEST_REQUIRE(m.guide.begins==begins+3600);
+ auto guide_count=m.guide.channels.size();auto guide_begin=m.guide.begins;
+ dvr_mode=3;m=session.dispatch({Action::LiveTV,{},"refresh"});TEST_REQUIRE(m.guide.stale&&m.guide.channels.size()==guide_count&&m.guide.begins==guide_begin&&m.message.find("cached")!=std::string::npos);
  dvr_mode=2;m=session.dispatch({Action::LiveTV,{},"refresh"});TEST_REQUIRE(m.screen==Screen::Guide&&m.guide.channels.empty()&&m.message.find("403")!=std::string::npos);
  before=requests;m=session.dispatch({Action::Home,{},{}});TEST_REQUIRE(requests==before);
  m=session.dispatch({Action::Library,"1",{}});TEST_REQUIRE(m.screen==Screen::Library&&m.library_tab=="recommended"&&!m.rails.empty());

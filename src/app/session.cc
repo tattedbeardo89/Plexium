@@ -34,13 +34,37 @@ bool Session::private_root(){
  return true;
 }
 void Session::clear_context(){
- player.stop();active.clear();base.clear();token.clear();server_id.clear();resources.clear();history.clear();cached_home.clear();pages.clear();metadata.clear();channels.clear();live_parts.clear();channels_loaded=0;personal_channels=plex::Json::array();personal_loaded=0;model.guide={};home_loaded=0;
+ player.stop();current_profile.clear();model.profile_name.clear();model.profile_avatar.clear();active.clear();base.clear();token.clear();server_id.clear();resources.clear();history.clear();cached_home.clear();pages.clear();metadata.clear();channels.clear();live_parts.clear();channels_loaded=0;personal_channels=plex::Json::array();personal_loaded=0;model.guide={};home_loaded=0;
  model.sections.clear();model.entries.clear();model.rails.clear();model.navigation.clear();model.detail={};model.detail_rails.clear();model.library_id.clear();model.library_path.clear();model.server_name.clear();model.servers.clear();
 }
-bool Session::profiles(){
+bool Session::profiles(bool restore_saved){
+ model.profiles.clear();model.screen=Screen::Profiles;
  auto r=client.home_users(account);if(!r){fail("Unable to load Plex Home profiles",r.status);return false;}
  model.profiles=plex::profiles(r.data);model.screen=Screen::Profiles;
- if(model.profiles.empty()){fail("Plex returned no selectable Home profiles");return false;}return true;
+ if(model.profiles.empty()){fail("Plex returned no selectable Home profiles");return false;}
+ if(restore_saved&&!account_id.empty()){
+  std::string owner,selected;
+  if(plex::load_credentials(root+"/selected-profile.json",owner,selected)&&owner==account_id){
+   auto found=std::find_if(model.profiles.begin(),model.profiles.end(),[&](const auto &profile){return profile.id==selected;});
+   // Permissions and protection come only from this fresh authorized response.
+   if(found!=model.profiles.end()&&!found->protected_user)return select_profile(selected,"");
+  }
+ }
+ return true;
+}
+bool Session::select_profile(const std::string &id,const std::string &pin){
+  auto p=std::find_if(model.profiles.begin(),model.profiles.end(),[&](const auto&p){return p.id==id;});
+  if(p==model.profiles.end()){fail("Unknown profile");return false;}
+  // Wipe all old authorized content before PIN entry or switching.
+  clear_context();
+  if(p->protected_user&&!plex::valid_pin(pin)){model.screen=Screen::Pin;return false;}
+  auto r=client.switch_home(account,id,pin);
+  if(!r){model.screen=Screen::Profiles;fail("Profile authorization failed",r.status);return false;}
+  active=plex::text(r.data,"authenticationToken",plex::text(r.data,"authToken"));
+  if(active.empty()){model.screen=Screen::Profiles;fail("Profile response has no authorization");return false;}
+  current_profile=id;model.profile_name=p->name;model.profile_avatar=p->avatar;
+  if(!account_id.empty()&&!plex::save_credentials(root+"/selected-profile.json",account_id,id))model.message="Profile selected, but the preference could not be saved.";
+  return discover();
 }
 bool Session::discover(){
  auto r=client.resources(active);if(!r){fail("Server discovery failed",r.status);return false;}
@@ -142,16 +166,21 @@ void Session::channel_page(int start){
  for(int i=model.page_start;i<std::min(model.total,model.page_start+60);++i)model.entries.push_back(channels[i]);
 }
 bool Session::live_tv(int offset,int64_t begins,bool refresh){
- model.screen=Screen::Guide;model.message.clear();model.guide.channels.clear();
+ model.screen=Screen::Guide;model.message.clear();
+ auto previous_guide=model.guide;model.guide.channels.clear();model.guide.stale=false;
  if(base.empty() || token.empty()){model.guide={};fail("Select an authorized Plex server first");return false;}
  const auto wall=int64_t(std::time(nullptr));
+ auto retain_cached=[&]{if(previous_guide.refreshed>0&&wall>=previous_guide.refreshed&&wall-previous_guide.refreshed<=900&&!previous_guide.channels.empty()){model.guide=previous_guide;model.guide.stale=true;model.message="Plex guide is unavailable; showing the last successful cached page. Options retries.";}};
  begins=std::clamp<int64_t>(begins,wall-24*3600,wall+7*24*3600);begins-=begins%1800;
  model.guide.begins=begins;model.guide.ends=begins+7200;
  auto bounded=client.bounded(800,1500);auto deadline=now()+8;bool guide_ok=true;
  if(refresh || personal_loaded==0 || now()-personal_loaded>120){
-  personal_channels=plex::Json::array();model.guide.configured=false;model.guide.total=0;
+  personal_loaded=0;personal_channels=plex::Json::array();model.guide.configured=false;model.guide.total=0;
   auto response=plex::live_channels(bounded,base,token);
-  if(!response){fail("Plex Live TV discovery unavailable",response.status);return false;}
+  if(!response){fail("Plex Live TV discovery unavailable",response.status);
+   if(response.status==401||response.status==403)model.guide={};
+   else retain_cached();return false;
+  }
   model.guide.configured=plex::flag(response.data,"configured");
   auto channels=response.data.find("channels");if(channels!=response.data.end()&&channels->is_array())personal_channels=*channels;
   std::stable_sort(personal_channels.begin(),personal_channels.end(),[](const auto&a,const auto&b){auto an=plex::channel_order(plex::text(a,"number")),bn=plex::channel_order(plex::text(b,"number"));return an==bn?plex::text(a,"title")<plex::text(b,"title"):an<bn;});
@@ -171,13 +200,17 @@ bool Session::live_tv(int offset,int64_t begins,bool refresh){
    if(now()>=deadline){guide_ok=false;continue;}
    auto response=plex::live_guide(bounded,base,token,source,date);
    if(response){auto entries=response.data.find("programs");if(entries!=response.data.end()&&entries->is_array())for(const auto &program:*entries)if(programs.size()<200)programs.push_back(program);}
-   else {guide_ok=false;model.message="Some Plex guide information is unavailable. Options refreshes the guide.";}
+   else {guide_ok=false;
+    if(response.status==401||response.status==403){model.guide={};personal_channels=plex::Json::array();personal_loaded=0;fail("Plex guide access is no longer authorized",response.status);return false;}
+    model.message="Some Plex guide information is unavailable. Options refreshes the guide.";
+   }
   }
   channel.programs=plex::guide_programs(plex::Json{{"programs",std::move(programs)}},begins,model.guide.ends);
   model.guide.channels.push_back(std::move(channel));if(progress)progress(model);
  }
  if(guide_ok)model.guide.refreshed=wall;
  else if(model.message.empty())model.message="Guide loading reached its time budget. Options retries the current page.";
+ if(!guide_ok)retain_cached();
  if(model.guide.total==0)model.message="Plex DVR is configured, but no accessible channels were returned.";
  return true;
 }
@@ -208,6 +241,7 @@ __attribute__((noinline)) const Model &Session::dispatch_current(const Command &
  model.message.clear();
  switch(c.action){
  case Action::Restore:{
+  clear_context();account.clear();account_id.clear();model=Model{};
   if(!private_root()){fail("Private app storage is unavailable");break;}
   std::string ignored;
   if(!plex::load_credentials(root+"/device.json",device,ignored)){
@@ -219,7 +253,7 @@ __attribute__((noinline)) const Model &Session::dispatch_current(const Command &
   // Keep the same transport while activating the persisted device identifier.
   client.set_client_id(device);
   if(plex::load_credentials(root+"/account.json",ignored,account)&&!account.empty()){
-   auto r=client.validate_account(account);if(r)profiles();else{account.clear();fail("Saved account needs sign-in",r.status);}
+   auto r=client.validate_account(account);if(r){account_id=plex::profile_id(r.data);profiles(true);}else{account.clear();fail("Saved account needs sign-in",r.status);}
   }
   break;}
  case Action::Link:
@@ -231,20 +265,14 @@ __attribute__((noinline)) const Model &Session::dispatch_current(const Command &
   model.expires=auth.remaining(now());
   if(auth.state==plex::AuthState::Authorized){
    account=auth.current.token;model.code.clear();auth.cancel();
+   auto identity=client.validate_account(account);
+   if(!identity){account.clear();fail("Linked account could not be validated",identity.status);break;}
+   account_id=plex::profile_id(identity.data);
    if(!plex::save_credentials(root+"/account.json",device,account)){account.clear();fail("Cannot persist account securely");break;}profiles();
   }else if(auth.state==plex::AuthState::Failed||auth.state==plex::AuthState::Expired){model.code.clear();fail("Activation expired or failed; press Cross to retry");}
   break;
  case Action::Cancel:auth.cancel();model.code.clear();model.screen=Screen::Welcome;break;
- case Action::Profile:{
-  auto p=std::find_if(model.profiles.begin(),model.profiles.end(),[&](const auto&p){return p.id==c.id;});
-  if(p==model.profiles.end()){fail("Unknown profile");break;}
-  if(p->protected_user&&!plex::valid_pin(c.text)){model.screen=Screen::Pin;break;}
-  // Wipe all old authorized content BEFORE switching; failure cannot retain it.
-  clear_context();auto r=client.switch_home(account,c.id,c.text);
-  if(!r){model.screen=Screen::Profiles;fail("Profile authorization failed",r.status);break;}
-  active=plex::text(r.data,"authenticationToken",plex::text(r.data,"authToken"));
-  if(active.empty()){model.screen=Screen::Profiles;fail("Profile response has no authorization");break;}
-  current_profile=c.id;model.profile_name=p->name;model.profile_avatar=p->avatar;discover();break;}
+ case Action::Profile:select_profile(c.id,c.text);break;
  case Action::Server:if(c.id.empty()){model.screen=Screen::Servers;}else connect(c.id);break;
  case Action::Home:if(c.id=="profiles"){clear_context();profiles();}else home(c.text=="refresh");break;
  case Action::Library:{
@@ -334,7 +362,7 @@ __attribute__((noinline)) const Model &Session::dispatch_current(const Command &
  case Action::Tick:if(model.screen==Screen::Playback){model.detail.offset=player.position();model.paused=player.paused();if(model.detail.type!="channel")client.bounded(500,1000).timeline(base,token,model.detail,player.paused()?"paused":"playing",model.detail.offset);}break;
  case Action::Settings:if(history.size()>=16)history.erase(history.begin());history.push_back(model);model.screen=Screen::Settings;break;
  case Action::SignOut:
-  clear_context();account.clear();auth.cancel();unlink((root+"/account.json").c_str());model=Model{};break;
+  clear_context();account.clear();account_id.clear();auth.cancel();unlink((root+"/account.json").c_str());unlink((root+"/selected-profile.json").c_str());model=Model{};break;
  case Action::Back:
   if(!history.empty()){model=history.back();history.pop_back();}
   else if(model.screen==Screen::Pin)model.screen=Screen::Profiles;

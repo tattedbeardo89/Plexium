@@ -42,5 +42,4 @@ bash ci/build-native.sh
 python3 ci/record-native-build.py
 git diff --exit-code -- src assets ps5/sce_sys
 python3 tools/make-source-kit.py
-(cd artifacts && sha256sum Plexium-PPSA85421.zip Plexium-native-debug.elf Plexium-native-source.tar.gz Plexium-source.bundle > SHA256SUMS)
-cp docs/INSTALLATION.md docs/DELIVERY.md artifacts/
+python3 ci/finalize-stage1.py

@@ -5,7 +5,7 @@
 namespace plex {
 struct GuideProgram {std::string title,series,summary;int64_t begins=0,ends=0;};
 struct GuideChannel {std::string id,number,title,thumb;std::vector<GuideProgram> programs;};
-struct Guide {std::vector<GuideChannel> channels;int offset=0,total=0;int64_t begins=0,ends=0,refreshed=0;bool configured=false;};
+struct Guide {std::vector<GuideChannel> channels;int offset=0,total=0;int64_t begins=0,ends=0,refreshed=0;bool configured=false,stale=false;};
 inline std::string guide_date(int64_t seconds){time_t value=seconds;struct tm utc{};if(!gmtime_r(&value,&utc))return {};char out[11];if(!strftime(out,sizeof out,"%Y-%m-%d",&utc))return {};return out;}
 inline std::string guide_time(int64_t seconds){time_t value=seconds;struct tm local{};if(!localtime_r(&value,&local))return {};char out[6];strftime(out,sizeof out,"%H:%M",&local);return out;}
 inline std::vector<GuideProgram> guide_programs(const Json &data,int64_t begins,int64_t ends){
