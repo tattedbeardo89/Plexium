@@ -4,6 +4,7 @@
 #include <vlc/vlc.h>
 #include <fontconfig/fontconfig.h>
 #include <omp.h>
+#include <pixman.h>
 #include <atomic>
 #include <vector>
 namespace plexium {
@@ -20,6 +21,10 @@ class HostVlcPlayer:public PlaybackPort {
  public:
  std::atomic<unsigned> frames{0},samples{0};
  HostVlcPlayer(){
+  // Pixman 0.42 initializes a process-global implementation chain and has no
+  // public destructor. Own it as an executable dependency, so unloading a VLC
+  // plugin cannot unmap the only roots of that still-live global cache.
+  if(pixman_version()<=0)return;
   fonts=FcInit();if(!fonts)return;
   const char *args[]={"--no-xlib","--no-video-title-show","--avcodec-hw=none","--quiet"};
   instance=libvlc_new(4,args);if(!instance)return;

@@ -73,7 +73,7 @@ $(OUT)/playback-integration-tests: $(CORE) $(APP) $(OBJ)/tests/playback_integrat
 	@mkdir -p $(dir $@)
 	$(CXX) $^ $(LDFLAGS) -o $@
 
-$(OBJ)/tests/host_vlc_tests.o: CXXFLAGS += $(if $(VLC_HOST_CFLAGS),$(VLC_HOST_CFLAGS),$(shell pkg-config --cflags libvlc fontconfig)) -fopenmp
+$(OBJ)/tests/host_vlc_tests.o: CXXFLAGS += $(if $(VLC_HOST_CFLAGS),$(VLC_HOST_CFLAGS),$(shell pkg-config --cflags libvlc fontconfig pixman-1)) -fopenmp
 $(OUT)/host-vlc-tests: $(CORE) $(APP) $(OBJ)/tests/host_vlc_tests.o
 	@mkdir -p $(dir $@)
-	$(CXX) $^ $(LDFLAGS) $(if $(VLC_HOST_LIBS),$(VLC_HOST_LIBS),$(shell pkg-config --libs libvlc fontconfig)) -l:libfontconfig.so.1 -fopenmp -o $@
+	$(CXX) $^ $(LDFLAGS) $(if $(VLC_HOST_LIBS),$(VLC_HOST_LIBS),$(shell pkg-config --libs libvlc fontconfig pixman-1)) -l:libfontconfig.so.1 -l:libpixman-1.so.0 -fopenmp -o $@

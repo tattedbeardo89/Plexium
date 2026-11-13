@@ -111,3 +111,10 @@ remain mandatory. Baseline tests require no account, external PMS or media.
 Exact-head native CI outcomes and artifact links are recorded in draft PR #2.
 The native workflow builds both modes separately, preserving original toolchain
 pins, package/signature checks, third-party notices and the hardware hold.
+
+The real-VLC CI job now runs independently of baseline host suites, preserving
+both required gates and retaining loader diagnostics. Ubuntu's additional
+Pixman 0.42.2 plugin-unload failure was reproduced and resolved by explicit
+process-lifetime dependency ownership; see PLAYBACK-CONTRACTS.md. Host playback
+prerequisites include libVLC/plugins, FFmpeg, Fontconfig and Pixman development
+headers plus the compiler's OpenMP runtime. These do not enter the PS5 package.

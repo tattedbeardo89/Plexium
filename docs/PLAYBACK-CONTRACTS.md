@@ -54,3 +54,36 @@ these contracts; independent Plex feature development continues regardless.
 4. When PS5 hardware returns, resolve the original startup fault, presentation,
    audio and decoder release contracts, then verify repeated 1080p playback.
    4K and Live TV runtime acceptance follow their own gates.
+
+## Confirmed host plugin lifetime boundary
+
+Ubuntu 24.04 CI reported 12,384 bytes in six allocations after all three real
+playback sessions passed. Loader address evidence identified Pixman 0.42.2,
+loaded through Cairo by VLC. Reproducing that exact Pixman package locally
+reproduced the same six allocations. Its published source (`pixman/pixman.c`,
+`pixman-implementation.c`) constructs `global_implementation` and a fallback
+chain at library load and exposes no public destructor for that global chain.
+Unloading the plugin dependency loses the cache's roots.
+
+The host executable now owns Pixman as a direct dependency and verifies its
+version before VLC initialization, preserving the documented process lifetime
+of its implementation cache. It also finalizes its owned Fontconfig context
+and pauses OpenMP resources after VLC releases. This is a host platform boundary,
+not a native PS5 change, manual destruction of private library objects or an
+LSan suppression. The exact failing Ubuntu runtime passes the final normal and
+ASan/UBSan runs with leak detection enabled. Loader traces remain available in
+CI diagnostics so future runtime-specific failures can be attributed.
+
+## Pinned native WSI source finding
+
+The actual RADV-linked backend is
+[PS5 Mesa `wsi_common_videoout.c`](https://github.com/mihawk-99/PS5_Mesa/blob/1ba9874f478657ccf6da72ce55f0260164cc0bd0/src/vulkan/wsi/wsi_common_videoout.c),
+not the separate experimental `PS5_Vulkan/driver` implementation. Its opening
+contract describes process-lifetime registered VideoOut framebuffer sets.
+`videoout_swapchain_destroy` waits with `cnd_wait` while `chain->in_flight` is
+nonzero. The present-wait hook delegates to the generic semaphore helper; this
+source review does not establish a bounded application-facing display-release
+contract. Existing WSI retention is therefore preserved. SDK
+`platform/include/ps5platform/videoout.h` declares the VideoOut functions and
+flip-status layout based on reference console observations, not Plexium hardware
+acceptance. No new direct VideoOut calls or cache reclamation are added.
