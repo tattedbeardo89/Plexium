@@ -80,7 +80,7 @@ struct Plan {
     MpvImage out = {};
 } plan;
 
-void free_images()
+bool free_images(bool reset_pool=true)
 {
     for (Image &im : plan.images) {
         if (im.fb)
@@ -94,7 +94,8 @@ void free_images()
     }
     plan.images.clear();
     plan.steps.clear();
-    vkResetDescriptorPool(gfx.device, pool, 0);
+    plan.ok=false;plan.out={};
+    return !reset_pool || !pool || vkResetDescriptorPool(gfx.device,pool,0)==VK_SUCCESS;
 }
 
 /* A size: name -> (w, h); OUTPUT is the target */
@@ -230,8 +231,8 @@ bool make_pipelines(int set)
  * hundreds of MB at 1080p). */
 bool make_plan(int set, const MpvImage &in, int target_w, int target_h)
 {
-    vkDeviceWaitIdle(gfx.device); /* the images before may still be read */
-    free_images();
+    if(!gfx_wait_queue())return false; /* retain old plan on timeout */
+    if(!free_images())return false;
     plan_id++;
     plan.set = set;
     plan.in_view = in.view;
@@ -469,4 +470,13 @@ bool mpv_record(VkCommandBuffer cmd, int set, const MpvImage &in, float target_w
     (void)si;
     *out = plan.out;
     return true;
+}
+
+void mpv_shutdown(){
+    free_images(false);
+    for(auto &set:pipelines){for(auto p:set)if(p)vkDestroyPipeline(gfx.device,p,nullptr);set.clear();}
+    if(pool)vkDestroyDescriptorPool(gfx.device,pool,nullptr);pool=VK_NULL_HANDLE;
+    if(layout)vkDestroyPipelineLayout(gfx.device,layout,nullptr);layout=VK_NULL_HANDLE;
+    if(set_layout)vkDestroyDescriptorSetLayout(gfx.device,set_layout,nullptr);set_layout=VK_NULL_HANDLE;
+    plan=Plan{};render_pass=VK_NULL_HANDLE;linear=VK_NULL_HANDLE;
 }

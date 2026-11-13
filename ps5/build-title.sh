@@ -45,9 +45,10 @@ TARGET=ps5 NM="$sdk/bin/prospero-nm" APP_MODULES="vlc_entry__ps5http vlc_entry__
 #    title's exports (the converter refuses application exports).
 bash "$here/compile-shaders.sh"
 build_commit=$(git -c safe.directory="$repo" -C "$repo" rev-parse --verify HEAD 2>/dev/null || echo uncommitted)
+source_date=$(git -c safe.directory="$repo" -C "$repo" show -s --format=%cI HEAD)
 startup_only=${PLEX_STARTUP_ONLY:-1}
 [[ $startup_only == 0 || $startup_only == 1 ]] || { echo 'PLEX_STARTUP_ONLY must be 0 or 1' >&2; exit 2; }
-cflags=(-DPLEX_STARTUP_ONLY="$startup_only" -g -fno-omit-frame-pointer "-DPLEX_BUILD_COMMIT=\"$build_commit\"" -O2 -march=znver2 -Wall -Wno-unused-result -Wno-unused-function
+cflags=(-DPLEX_STARTUP_ONLY="$startup_only" -g -fno-omit-frame-pointer "-DPLEX_BUILD_COMMIT=\"$build_commit\"" "-DPLEX_SOURCE_DATE=\"$source_date\"" -O2 -march=znver2 -Wall -Wno-unused-result -Wno-unused-function
     -DPLEX_PS5 -DVK_NO_PROTOTYPES -DIMGUI_IMPL_VULKAN_USE_VOLK
     -I"$repo/third_party" -I"$repo/src" -I"$repo/third_party/imgui" -I"$repo/third_party/volk" -I"$repo/third_party/stb"
     -I"$vk/.deps/native/radv-release/include" -I"$vlc_src/include" -I"$prefix/include")

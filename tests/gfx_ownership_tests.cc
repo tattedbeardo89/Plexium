@@ -40,9 +40,13 @@ int main(){
  vkDestroySemaphore=destroy<VkSemaphore>;vkDestroySwapchainKHR=destroy<VkSwapchainKHR>;vkDestroyDevice=device;
  vkDestroyInstance=instance;vkDestroySurfaceKHR=destroy_surface;vkUnmapMemory=unmap;
  for(bool offscreen:{false,true})for(limit=0;limit<=40;++limit){
-  planned=0;populate(offscreen);gfx_destroy();TEST_REQUIRE(owned.empty());
+  planned=0;populate(offscreen);gfx_destroy(true);TEST_REQUIRE(owned.empty());
   TEST_REQUIRE(!gfx.instance && !gfx.device && !surface && !swapchain && images.empty() && !hdr.output_pass);
-  gfx_destroy();TEST_REQUIRE(owned.empty());
+  gfx_destroy(true);TEST_REQUIRE(owned.empty());
  }
+ limit=40;planned=0;populate(false);
+ TEST_REQUIRE(!gfx_destroy(false));
+ TEST_REQUIRE(owned.size()==5 && gfx.device && swapchain); // WSI, semaphore and device owners remain
+ TEST_REQUIRE(gfx_destroy(true) && owned.empty()); // only a proven presentation completion permits this
  puts("PASS: production renderer teardown across partial allocations, HDR/offscreen ownership, WSI image exclusion, child-before-device order and idempotence");
 }

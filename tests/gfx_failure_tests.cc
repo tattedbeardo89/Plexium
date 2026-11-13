@@ -20,6 +20,8 @@ static VKAPI_ATTR VkResult VKAPI_CALL caps_mock(VkPhysicalDevice,VkSurfaceKHR,Vk
 static VKAPI_ATTR VkResult VKAPI_CALL swap_mock(VkDevice,const VkSwapchainCreateInfoKHR *info,const VkAllocationCallbacks*,VkSwapchainKHR*){
  ++swap_creates;TEST_REQUIRE(info->compositeAlpha==VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR);return VK_ERROR_OUT_OF_DEVICE_MEMORY;
 }
+static VKAPI_ATTR VkResult VKAPI_CALL fence_mock(VkDevice,const VkFenceCreateInfo*,const VkAllocationCallbacks*,VkFence *out){*out=reinterpret_cast<VkFence>(1);return VK_SUCCESS;}
+static VKAPI_ATTR void VKAPI_CALL destroy_fence(VkDevice,VkFence,const VkAllocationCallbacks*){}
 static VKAPI_ATTR VkResult VKAPI_CALL idle_mock(VkDevice){return wait_result;}
 static VKAPI_ATTR VkResult VKAPI_CALL wait_mock(VkDevice,uint32_t,const VkFence*,VkBool32,uint64_t timeout){TEST_REQUIRE(timeout==frame_timeout_ns);++waits;return wait_result;}
 static VKAPI_ATTR VkResult VKAPI_CALL pool_mock(VkDevice,VkCommandPool,VkCommandPoolResetFlags){return VK_SUCCESS;}
@@ -31,9 +33,9 @@ static VKAPI_ATTR VkResult VKAPI_CALL submit_mock(VkQueue,uint32_t,const VkSubmi
 static VKAPI_ATTR VkResult VKAPI_CALL acquire_mock(VkDevice,VkSwapchainKHR,uint64_t timeout,VkSemaphore,VkFence,uint32_t *index){TEST_REQUIRE(timeout==frame_timeout_ns);*index=0;return VK_SUCCESS;}
 static VKAPI_ATTR VkResult VKAPI_CALL present_mock(VkQueue,const VkPresentInfoKHR*){++presents;return present_result;}
 static void reset_test(){
- gfx={};gfx.offscreen=false;frames[0].cmd=reinterpret_cast<VkCommandBuffer>(uintptr_t(1));frames[0].number=0;rendered.resize(1);pass_now=PASS_NONE;frame_failed=false;
+ gfx={};queue_closed=false;uncertain_work.reset();gfx.offscreen=false;frames[0].cmd=reinterpret_cast<VkCommandBuffer>(uintptr_t(1));frames[0].number=0;rendered.resize(1);pass_now=PASS_NONE;frame_failed=false;
  wait_result=begin_result=submit_result=present_result=VK_SUCCESS;waits=resets=submits=presents=0;
- vkWaitForFences=wait_mock;vkResetCommandPool=pool_mock;vkBeginCommandBuffer=begin_mock;vkResetFences=reset_mock;vkCmdEndRenderPass=pass_mock;vkEndCommandBuffer=end_mock;vkQueueSubmit=submit_mock;vkAcquireNextImageKHR=acquire_mock;vkQueuePresentKHR=present_mock;
+ vkCreateFence=fence_mock;vkDestroyFence=destroy_fence;vkWaitForFences=wait_mock;vkResetCommandPool=pool_mock;vkBeginCommandBuffer=begin_mock;vkResetFences=reset_mock;vkCmdEndRenderPass=pass_mock;vkEndCommandBuffer=end_mock;vkQueueSubmit=submit_mock;vkAcquireNextImageKHR=acquire_mock;vkQueuePresentKHR=present_mock;
 }
 int main(){
  reset_test();wait_result=VK_TIMEOUT;TEST_REQUIRE(!gfx_begin_frame());TEST_REQUIRE(resets==0&&submits==0);TEST_REQUIRE(!gfx_begin_frame());TEST_REQUIRE(waits==1);
@@ -41,7 +43,11 @@ int main(){
  reset_test();auto cmd=gfx_begin_frame();TEST_REQUIRE(cmd&&resets==0);submit_result=VK_ERROR_DEVICE_LOST;TEST_REQUIRE(!gfx_end_frame(cmd));TEST_REQUIRE(resets==1&&submits==1&&presents==0&&gfx.frame_number==0);TEST_REQUIRE(!gfx_begin_frame());
  reset_test();cmd=gfx_begin_frame();present_result=VK_ERROR_OUT_OF_DATE_KHR;TEST_REQUIRE(!gfx_end_frame(cmd));TEST_REQUIRE(submits==1&&presents==1);TEST_REQUIRE(!gfx_begin_frame());
  reset_test();cmd=gfx_begin_frame();TEST_REQUIRE(gfx_end_frame(cmd));TEST_REQUIRE(gfx.frame_number==1&&resets==1&&submits==1&&presents==1);
- reset_test();gfx.device=reinterpret_cast<VkDevice>(uintptr_t(1));vkDeviceWaitIdle=idle_mock;wait_result=VK_ERROR_DEVICE_LOST;TEST_REQUIRE(!gfx_shutdown());wait_result=VK_SUCCESS;TEST_REQUIRE(gfx_shutdown());
+ reset_test();gfx.device=reinterpret_cast<VkDevice>(uintptr_t(1));vkDeviceWaitIdle=idle_mock;wait_result=VK_ERROR_DEVICE_LOST;TEST_REQUIRE(!gfx_shutdown());wait_result=VK_SUCCESS;TEST_REQUIRE(!gfx_shutdown());
+ reset_test();gfx.device=reinterpret_cast<VkDevice>(1);TEST_REQUIRE(gfx_shutdown());
+ reset_test();gfx.device=reinterpret_cast<VkDevice>(1);wait_result=VK_TIMEOUT;
+ TEST_REQUIRE(!gfx_shutdown() && queue_closed && uncertain_work.has_value());
+ auto accepted=submits;TEST_REQUIRE(!gfx_shutdown() && submits==accepted); // no retry/extra allocation after uncertainty
  vkGetPhysicalDeviceSurfaceFormatsKHR=formats_mock;vkGetPhysicalDeviceSurfaceCapabilitiesKHR=caps_mock;vkCreateSwapchainKHR=swap_mock;
  for(surface_failure=1;surface_failure<=7;++surface_failure){swap_creates=0;TEST_REQUIRE(!create_swapchain());TEST_REQUIRE(swap_creates==int(surface_failure==7));}
  puts("PASS: real frame loop stops on timeout/device loss/submit/present errors; success advances once");

@@ -3,11 +3,40 @@
 #include "runtime/worker.h"
 #include "runtime/render_queue.h"
 #include "runtime/task.h"
+#include "runtime/owned_jobs.h"
+#include "runtime/shutdown.h"
+#include "audio_ports.h"
 #include <thread>
 #include <vector>
 #include <iostream>
 using namespace plexium;
 int main(){
+ // Timeout preserves a running callback's owner; retry joins after an explicit
+ // release event. No sleep or detached thread is used to fake cancellation.
+ for(int cycle=0;cycle<32;++cycle){
+  OwnedJobs owned;std::promise<void> started,release_job;auto barrier=release_job.get_future().share();
+  TEST_REQUIRE(owned.start([&]{started.set_value();barrier.wait();}));TEST_REQUIRE(started.get_future().wait_for(std::chrono::seconds(5))==std::future_status::ready);
+  TEST_REQUIRE(!owned.close(std::chrono::milliseconds(0)));
+  TEST_REQUIRE(!owned.start([]{}));release_job.set_value();
+  TEST_REQUIRE(owned.close(std::chrono::seconds(5)));TEST_REQUIRE(owned.close(std::chrono::milliseconds(0)));
+  TEST_REQUIRE(owned.reopen() && owned.start([]{}));TEST_REQUIRE(owned.close(std::chrono::seconds(5)));
+ }
+ Shutdown shutdown;int steps=0;
+ {
+  OwnedJobs jobs;std::promise<void> release;auto barrier=release.get_future().share();
+  for(int i=0;i<8;++i)TEST_REQUIRE(jobs.start([barrier]{barrier.wait();}));
+  TEST_REQUIRE(!jobs.start([]{}));release.set_value();TEST_REQUIRE(jobs.close(std::chrono::seconds(5)));
+ }
+ TEST_REQUIRE(shutdown.step(0,"fixture",true,[&]{++steps;return ShutdownStatus::TimedOut;})==ShutdownStatus::TimedOut);
+ shutdown.step(0,"fixture",true,[&]{++steps;return ShutdownStatus::Completed;});
+ TEST_REQUIRE(steps==1 && !shutdown.successful());
+ TEST_REQUIRE(shutdown.step(1,"dependency",false,[]{return ShutdownStatus::Completed;})==ShutdownStatus::Skipped);
+ PlexAudioPorts ports{3,4};static int closes=0;
+ auto fail=[](int handle){++closes;return handle==3?-1:0;};
+ TEST_REQUIRE(!plex_audio_ports_close(&ports,fail) && ports.stereo==3 && ports.surround==-1 && closes==2);
+ TEST_REQUIRE(!plex_audio_ports_close(&ports,nullptr) && ports.stereo==3);
+ TEST_REQUIRE(plex_audio_ports_close(&ports,[](int){++closes;return 0;}) && closes==3);
+ TEST_REQUIRE(plex_audio_ports_close(&ports,fail) && closes==3);
  Worker worker;std::atomic<int> calls{0};
  auto entry=[](void *p)->void*{++*static_cast<std::atomic<int>*>(p);return nullptr;};
  TEST_REQUIRE(worker.start(entry,&calls,1024)==EINVAL);

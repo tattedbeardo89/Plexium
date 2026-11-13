@@ -175,6 +175,8 @@ extern void vlc_ps5_split_plane16(uint8_t *dst_u, size_t u_pitch, uint8_t *dst_v
                                   unsigned rows) __attribute__((weak));
 extern void vlc_ps5_vdec_failed(void) __attribute__((weak));
 extern void vlc_ps5_vdec_active(int on) __attribute__((weak));
+extern void vlc_ps5_vdec_cleanup_failed(void) __attribute__((weak));
+extern int vlc_ps5_vdec_cleanup_is_failed(void) __attribute__((weak));
 
 #define PROT_CPU_RW 0x03
 #define PROT_GPU_RW 0x30
@@ -203,6 +205,8 @@ static size_t round_16k(size_t v)
 
 static bool mem_direct(Mem *m, size_t len, size_t align, int prot)
 {
+    if(m->len && (m->addr || m->start>=0))return false;
+    if(!len || len>SIZE_MAX-PAGE_16K)return false;
     m->len = round_16k(len);
     m->start = -1;
     m->addr = NULL;
@@ -212,7 +216,10 @@ static bool mem_direct(Mem *m, size_t len, size_t align, int prot)
                                       DIRECT_TYPE, &m->start) != 0)
         return false;
     if (sceKernelMapDirectMemory(&m->addr, m->len, prot, 0, m->start, align) != 0) {
-        sceKernelReleaseDirectMemory(m->start, m->len);
+        if(sceKernelReleaseDirectMemory(m->start,m->len)!=0){
+            if(vlc_ps5_vdec_cleanup_failed)vlc_ps5_vdec_cleanup_failed();
+            m->addr=NULL;return false;
+        }
         m->start = -1;
         m->addr = NULL;
         return false;
@@ -222,6 +229,8 @@ static bool mem_direct(Mem *m, size_t len, size_t align, int prot)
 
 static bool mem_flexible(Mem *m, size_t len)
 {
+    if(m->len && (m->addr || m->start>=0))return false;
+    if(!len || len>SIZE_MAX-PAGE_16K)return false;
     m->len = round_16k(len);
     m->start = -1;
     m->addr = NULL;
@@ -241,6 +250,8 @@ static bool cpu_block_busy;
 
 static bool mem_cpu(Mem *m, size_t len)
 {
+    if(m->len && (m->addr || m->start>=0))return false;
+    if(!len || len>SIZE_MAX-PAGE_16K)return false;
     len = round_16k(len);
     vlc_mutex_lock(&cpu_block_lock);
     bool ok = false;
@@ -270,21 +281,25 @@ static bool mem_cpu(Mem *m, size_t len)
     return ok || mem_flexible(m, len);
 }
 
-static void mem_free(Mem *m)
+static bool mem_free(Mem *m)
 {
-    if (!m->addr)
-        return;
-    if (m->start == -2) {
-        vlc_mutex_lock(&cpu_block_lock);
-        cpu_block_busy = false;
-        vlc_mutex_unlock(&cpu_block_lock);
-    } else if (m->start >= 0) {
-        sceKernelMunmap(m->addr, m->len);
-        sceKernelReleaseDirectMemory(m->start, m->len);
-    } else {
-        sceKernelMunmap(m->addr, m->len); /* (released, flexible memory never came back) */
+    if(!m->len || (!m->addr && m->start<0))return true;
+    bool ok=true;
+    if(m->start==-2){
+        vlc_mutex_lock(&cpu_block_lock);cpu_block_busy=false;vlc_mutex_unlock(&cpu_block_lock);
+    }else{
+        if(m->addr){
+            if(sceKernelMunmap(m->addr,m->len)!=0)ok=false;
+            else m->addr=NULL;
+        }
+        // Never release backing memory while its mapping is still owned.
+        if(ok && m->start>=0 && sceKernelReleaseDirectMemory(m->start,m->len)!=0)ok=false;
     }
-    m->addr = NULL;
+    if(!ok){
+        if(vlc_ps5_vdec_cleanup_failed)vlc_ps5_vdec_cleanup_failed();
+        VLOG("decoder memory release failed: ownership retained\n");return false;
+    }
+    *m=(Mem){.start=-1};return true;
 }
 
 /* One compute queue for the app's life: the decoders share it. */
@@ -1331,7 +1346,7 @@ static int Decode(decoder_t *dec, block_t *block)
     Mem *slot = &sys->au[sys->au_next];
     size_t need = sys->headers_size + block->i_buffer * (sys->nal_length && sys->nal_length < 4 ? 3 : 1) + 64;
     if (need > slot->len) {
-        mem_free(slot);
+        if(!mem_free(slot)){give_up(dec,"access unit release failed");block_Release(block);return VLCDEC_SUCCESS;}
         if (!mem_direct(slot, need + ((size_t)1 << 20), PAGE_16K, PROT_CPU_RW | PROT_GPU_RW)) {
             VLOG("no memory for an access unit of %zu bytes\n", block->i_buffer);
             give_up(dec, "access unit too big");
@@ -1518,15 +1533,19 @@ static int bring_up(decoder_sys_t *sys, VdecConfig *config, VdecMemory *mem);
 static bool vp9_rebuild(decoder_t *dec, unsigned profile)
 {
     decoder_sys_t *sys = dec->p_sys;
-    if (sys->dec)
-        sceVideodec2DeleteDecoder(sys->dec);
+    if(sys->dec && sceVideodec2DeleteDecoder(sys->dec)!=0){
+        if(vlc_ps5_vdec_cleanup_failed)vlc_ps5_vdec_cleanup_failed();
+        VLOG("decoder delete failed: retaining decoder allocations\n");
+        return false;
+    }
     sys->dec = NULL;
-    for (int i = 0; i < AU_SLOTS; i++)
-        mem_free(&sys->au[i]);
-    mem_free(&sys->frames);
-    mem_free(&sys->cpu_gpu);
-    mem_free(&sys->gpu);
-    mem_free(&sys->cpu);
+    bool released=true;
+    for(int i=0;i<AU_SLOTS;++i)if(!mem_free(&sys->au[i]))released=false;
+    if(!mem_free(&sys->frames))released=false;
+    if(!mem_free(&sys->cpu_gpu))released=false;
+    if(!mem_free(&sys->gpu))released=false;
+    if(!mem_free(&sys->cpu))released=false;
+    if(!released)return false;
     memset(sys->frame_held, 0, sizeof(sys->frame_held));
     VdecConfig c = sys->cfg;
     c.profile = profile;
@@ -1549,24 +1568,31 @@ static bool vp9_rebuild(decoder_t *dec, unsigned profile)
     return true;
 }
 
-static void free_sys(decoder_sys_t *sys)
+static bool free_sys(decoder_sys_t *sys)
 {
-    if (sys->dec)
-        sceVideodec2DeleteDecoder(sys->dec);
-    for (int i = 0; i < AU_SLOTS; i++)
-        mem_free(&sys->au[i]);
-    mem_free(&sys->frames);
-    mem_free(&sys->cpu_gpu);
-    mem_free(&sys->gpu);
-    mem_free(&sys->cpu);
+    if(sys->dec && sceVideodec2DeleteDecoder(sys->dec)!=0){
+        if(vlc_ps5_vdec_cleanup_failed)vlc_ps5_vdec_cleanup_failed();
+        VLOG("decoder delete failed: retaining decoder allocations\n");
+        return false;
+    }
+    sys->dec=NULL;
+    bool released=true;
+    for(int i=0;i<AU_SLOTS;++i)if(!mem_free(&sys->au[i]))released=false;
+    if(!mem_free(&sys->frames))released=false;
+    if(!mem_free(&sys->cpu_gpu))released=false;
+    if(!mem_free(&sys->gpu))released=false;
+    if(!mem_free(&sys->cpu))released=false;
+    if(!released)return false;
     free(sys->headers);
     free(sys);
+    return true;
 }
 
 /* The decoder's memory and the decoder itself, for this config; on failure
  * what was taken is given back (so a lighter config can be tried). */
 static int bring_up(decoder_sys_t *sys, VdecConfig *config, VdecMemory *mem)
 {
+    if(vlc_ps5_vdec_cleanup_is_failed && vlc_ps5_vdec_cleanup_is_failed())return VLC_EGENERIC;
     *mem = (VdecMemory){ .this_size = sizeof(*mem) };
     int rc = sceVideodec2QueryDecoderMemoryInfo(config, mem);
     if (rc != 0) {
@@ -1642,6 +1668,7 @@ static int bring_up(decoder_sys_t *sys, VdecConfig *config, VdecMemory *mem)
 
 static int OpenDecoder(vlc_object_t *obj)
 {
+    if(vlc_ps5_vdec_cleanup_is_failed && vlc_ps5_vdec_cleanup_is_failed())return VLC_EGENERIC;
     decoder_t *dec = (decoder_t *)obj;
     if (!var_InheritBool(dec, "ps5vdec"))
         return VLC_EGENERIC;
@@ -1820,7 +1847,7 @@ static void CloseDecoder(vlc_object_t *obj)
     decoder_t *dec = (decoder_t *)obj;
     decoder_sys_t *sys = dec->p_sys;
     VLOG("closed: %u access units, %u pictures, %u errors\n", sys->decoded, sys->shown, sys->errors);
-    free_sys(sys);
+    if(!free_sys(sys))return;
     if (vlc_ps5_vdec_active)
         vlc_ps5_vdec_active(0);
 }

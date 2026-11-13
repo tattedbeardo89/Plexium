@@ -284,15 +284,17 @@ void Artwork::clear() {
     for(auto &entry:entries)if(entry.texture)retired.push_back(entry.texture);
     entries.clear();
 }
-void Artwork::close() {
-    if(closed)return;
+bool Artwork::close(std::chrono::milliseconds timeout) {
     closed=true;stopping->store(true);
     // Never call update(): shutdown must not schedule cache maintenance or
     // upload images. The texture manager retains GPU ownership until idle.
-    if(pending.valid())pending.get();
-    if(media_pending.valid())media_pending.get();
-    if(avatar_pending.valid())avatar_pending.get();
+    auto deadline=std::chrono::steady_clock::now()+timeout;
+    for(auto *lane:{&pending,&media_pending,&avatar_pending})if(lane->valid()){
+        auto left=std::max(std::chrono::milliseconds(0),std::chrono::duration_cast<std::chrono::milliseconds>(deadline-std::chrono::steady_clock::now()));
+        if(lane->wait_for(left)!=std::future_status::ready)return false;
+        lane->get();
+    }
     ready.reset();clear_target.reset();trim_disk_pending=false;
-    entries.clear();retired.clear();gpu_bytes=0;
+    entries.clear();retired.clear();gpu_bytes=0;return true;
 }
 } // namespace plex

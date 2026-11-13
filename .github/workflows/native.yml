@@ -39,7 +39,7 @@ jobs:
       - name: Host prerequisites and pinned artwork tooling
         run: |
           sudo apt-get update
-          sudo apt-get install -y g++ make pkg-config libcurl4-openssl-dev libgnutls28-dev libvulkan-dev python3-venv openssl
+          sudo apt-get install -y g++ make pkg-config libcurl4-openssl-dev libgnutls28-dev libvulkan-dev libvlc-dev libvlccore-dev python3-venv openssl
           python3 -m venv /tmp/plexium-tools
           /tmp/plexium-tools/bin/pip install -r tools/requirements.txt
           echo /tmp/plexium-tools/bin >> "$GITHUB_PATH"
@@ -56,6 +56,12 @@ jobs:
           python3 ci/run-check.py transport bash host/test-native-transport.sh
           SANITIZE=1 python3 ci/run-check.py host-san bash host/check.sh
           SANITIZE=1 python3 ci/run-check.py entry-san bash host/test-native-entry.sh
+      - name: Production player lifecycle injection
+        env:
+          VULKAN_HEADERS: /usr/include
+        run: |
+          python3 ci/run-check.py player-lifecycle bash host/test-player-lifecycle.sh
+          SANITIZE=1 python3 ci/run-check.py player-lifecycle-san bash host/test-player-lifecycle.sh
       - name: Restore exact native dependency cache
         id: cache
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830

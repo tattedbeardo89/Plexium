@@ -7,7 +7,7 @@
 #include "plex/guide.h"
 #include <deque>
 #include <thread>
-#include "runtime/worker.h"
+#include "runtime/owned_jobs.h"
 #include "runtime/paths.h"
 #include <mutex>
 #include <condition_variable>
@@ -100,14 +100,14 @@ class Runtime {
  MediaContext context;
  uint64_t generation=0;
  bool closing=false;
- Worker worker;
+ OwnedJob worker;
  int worker_error=0;
  void run();
  public:
  explicit Runtime(std::unique_ptr<Session>);
  ~Runtime();
  // Owner-thread operation: close the render queue before joining this worker.
- void close();
+ bool close(std::chrono::milliseconds timeout=std::chrono::milliseconds(2000));
  bool ready()const{std::lock_guard<std::mutex> lock(mutex);return !closing&&worker_error==0;}
  int start_error()const{return worker_error;}
  bool send(Command);

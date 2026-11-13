@@ -35,3 +35,6 @@ unsigned mpv_plan_id();
 
 /* the set's name, for the log */
 const char *mpv_set_name(int set);
+
+// After all media callbacks and GPU work are quiescent; idempotent.
+void mpv_shutdown();

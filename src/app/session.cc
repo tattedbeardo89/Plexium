@@ -373,14 +373,15 @@ __attribute__((noinline)) const Model &Session::dispatch_current(const Command &
  return model;
 }
 Runtime::Runtime(std::unique_ptr<Session>s):session(std::move(s)){
- worker_error=worker.start([](void *self)->void*{static_cast<Runtime*>(self)->run();return nullptr;},this);
+ worker_error=worker.start([this]{run();},Worker::session_stack);
  if(worker_error)model.message="Session worker could not start";
 }
 Runtime::~Runtime(){close();}
-void Runtime::close(){
+bool Runtime::close(std::chrono::milliseconds timeout){
  {std::lock_guard<std::mutex> l(mutex);closing=true;++generation;queue.clear();}
- cv.notify_all();worker.join();
+ cv.notify_all();
  {std::lock_guard<std::mutex> l(mutex);model=Model{};context={};}
+ return worker.wait(timeout);
 }
 bool Runtime::send(Command command){
  std::lock_guard<std::mutex> l(mutex);

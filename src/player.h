@@ -35,7 +35,13 @@ struct VideoInfo {
 enum DecodeMode { DECODE_AUTO, DECODE_FAST, DECODE_FULL };
 
 bool player_init();
-void player_shutdown();
+enum class PlayerPhase {Uninitialized,Initializing,Ready,Opening,Playing,Stopping,Stopped,Released,Error,Recovery};
+bool player_shutdown();
+void player_request_shutdown();
+PlayerPhase player_phase();
+bool player_shutdown_timed_out();
+bool player_decoder_cleanup_failed();
+bool video_shutdown();
 libvlc_instance_t *player_vlc();
 
 /* options: extra ":name=value" media options (a share's login, never in the address). */

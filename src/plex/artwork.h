@@ -52,7 +52,7 @@ class Artwork {
     ~Artwork(){close();}
     // Render-thread owner closes before renderer teardown. Network requests
     // finish within their adapter timeouts; cancellation is cooperative.
-    void close();
+    bool close(std::chrono::milliseconds timeout=std::chrono::milliseconds(2000));
     bool busy() const {return pending.valid() || media_pending.valid() || avatar_pending.valid() || ready.has_value();}
     size_t cached() const {return entries.size();}
     float aspect(ImTextureID texture) const {

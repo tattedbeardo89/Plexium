@@ -8,6 +8,7 @@
  */
 #include "platform.h"
 #include "runtime/paths.h"
+#include "audio_ports.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -31,6 +32,8 @@
 /* Where the eboot is loaded, and a bound on its code for backtraces. */
 #include "crash_termination.h"
 extern unsigned plex_home_last_checkpoint(void);
+extern unsigned plex_native_startup_phase(void);
+extern unsigned plex_native_shutdown_phase(void);
 
 int sceKernelSendNotificationRequest(int device, void *request, size_t size, int blocking);
 int sceSystemServiceHideSplashScreen(void);
@@ -105,6 +108,8 @@ static void crash_handler(int sig, siginfo_t *info, void *context)
         crash_number("fault address: ",(uintptr_t)info->si_addr);
     }
     crash_number("last Home checkpoint: ",plex_home_last_checkpoint());
+    crash_number("last startup phase: ",plex_native_startup_phase());
+    crash_number("last shutdown phase: ",plex_native_shutdown_phase());
     crash_terminate(128+sig,_exit,exit_returned);
 }
 
@@ -317,11 +322,13 @@ void plat_hide_splash(void)
     fprintf(stderr, "VLC-PS5: splash hidden (%#x)\n", sceSystemServiceHideSplashScreen());
 }
 
-void plat_quit(void)
+void plat_quit(int status)
 {
-    fflush(NULL);
+    // Retained workers may hold stdio locks after a timeout. Never globally
+    // flush their streams while exiting an incomplete shutdown.
+    if(status==0){fflush(stderr);fflush(stdout);}
     sceSystemServiceLoadExec("exit", NULL);
-    _exit(0);
+    _exit(status);
 }
 
 /* A title sees the drives that were mounted when it started (a USB drive
@@ -445,10 +452,15 @@ bool plat_create_surface(VkInstance instance, VkPhysicalDevice gpu, VkSurfaceKHR
 
 /* ---- sound ----------------------------------------------------------------- */
 
-static int audio_port = -1;
+static PlexAudioPorts audio_ports={-1,-1};
+#define audio_port audio_ports.stereo
+#define surround_port audio_ports.surround
+extern int sceAudioOutClose(int port) __attribute__((weak));
+bool plat_audio_close(void){int ok=plex_audio_ports_close(&audio_ports,sceAudioOutClose);fprintf(stderr,"audio: close status=%s\n",ok?"completed":"retained");return ok!=0;}
 
 bool plat_audio_open(void)
 {
+    if(audio_port>=0)return true;
     int rc = sceAudioOutInit();
     /* System user, main port, 16-bit stereo (QUICK3, PS5_vkQuake, XPSemu). */
     audio_port = sceAudioOutOpen(0xff, 0, 0, AUDIO_GRAIN, AUDIO_RATE, 1);
@@ -462,13 +474,12 @@ void plat_audio_output(const int16_t *frames)
         sceAudioOutOutput(audio_port, frames);
 }
 
-static int surround_port = -1;
+
 
 bool plat_audio_open_surround(void)
 {
-    static bool tried;
-    if (!tried) {
-        tried = true;
+    if(surround_port>=0)return true;
+    {
         /* Format 2: 16-bit, 8 channels (L R C LFE Ls Rs Lb Rb). The system
          * mixes it down for a stereo TV. */
         surround_port = sceAudioOutOpen(0xff, 0, 0, AUDIO_GRAIN, AUDIO_RATE, 2);

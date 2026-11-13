@@ -4,4 +4,6 @@
 #include "imgui.h"
 ImTextureID library_upload_rgba(const unsigned char*,int,int);
 void library_free_image(ImTextureID);
-void textures_shutdown();
+bool textures_shutdown();
+void textures_stop_uploads();
+bool textures_begin_context();

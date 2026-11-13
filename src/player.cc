@@ -16,9 +16,11 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "subtitle_latch.h"
+#include "runtime/owned_jobs.h"
 #include "player.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <ctype.h>
@@ -66,6 +68,13 @@ extern bool log_debug;
 /* The picture diagnostics (2026-10-18): only with debug=1 in settings.txt */
 #define DIAG(...) do { if (log_debug) fprintf(stderr, __VA_ARGS__); } while (0)
 
+std::atomic<bool> player_closing{false};
+std::atomic<PlayerPhase> native_phase{PlayerPhase::Uninitialized};
+plexium::OwnedJobs auxiliary_jobs;
+plexium::OwnedJob release_job;
+bool release_complete=false;
+bool release_timed_out=false;
+void phase(PlayerPhase value){native_phase=value;fprintf(stderr,"player lifecycle: state=%d\n",int(value));}
 libvlc_instance_t *vlc;
 libvlc_media_player_t *mp;
 std::string current_path;
@@ -85,6 +94,7 @@ std::string fast_path;     /* the file Auto switched, so a reopen keeps it */
 /* Hardware decoding (ps5/modules/ps5vdec.c): settings.txt hw_decode=0 turns
  * it off; a video the console's decoder gave up on reopens with FFmpeg. */
 std::atomic<bool> vdec_failed{ false };
+std::atomic<bool> vdec_cleanup_failed{false};
 std::atomic<int> vdec_active{ 0 };   /* decoders open on the console's decoder */
 /* how long a video takes to show its first picture (the log) */
 double opened_at;
@@ -192,6 +202,7 @@ struct Format {
 std::mutex pic_lock;
 std::condition_variable pic_freed;
 Slot slots[SLOTS];
+uint8_t *scratch_picture=nullptr;size_t scratch_picture_size=0;bool scratch_picture_busy=false;
 Format format;
 int generation;        /* bumped by every vmem setup */
 std::atomic<bool> stopping; /* the video before is stopping (in the background) */
@@ -525,6 +536,7 @@ unsigned vmem_setup(void **opaque, char *chroma, unsigned *width, unsigned *heig
                     unsigned *pitches, unsigned *lines)
 {
     (void)opaque;
+    if(player_closing || !*width || !*height || *width>4096 || *height>4096)return 0;
     /* The hardware decoder's NV12 / P010 are taken as they are (the shader
      * reads the interleaved chroma), everything else as planar 4:2:0.
      * VLCPS5_TWO_PLANES=1 (host tests) asks for NV12 / P010 from any decoder. */
@@ -537,7 +549,9 @@ unsigned vmem_setup(void **opaque, char *chroma, unsigned *width, unsigned *heig
     fprintf(stderr, "player: VLC offers %.4s %ux%u\n", chroma, *width, *height);
     memcpy(chroma, two ? (ten ? "P010" : "NV12") : ten ? "I0AL" : full ? "J420" : "I420", 4);
 
-    std::lock_guard<std::mutex> g(pic_lock);
+    std::unique_lock<std::mutex> g(pic_lock);
+    pic_freed.wait(g,[]{return !scratch_picture_busy || player_closing;});
+    if(player_closing)return 0;
     free_slots_locked(gfx.frame_number + GFX_FRAMES + 1);
     Format f = {};
     f.width = *width;
@@ -571,7 +585,14 @@ unsigned vmem_setup(void **opaque, char *chroma, unsigned *width, unsigned *heig
         lines[i] = f.lines[i];
     }
     f.size = off;
+    if(!f.size || f.size>64u*1024*1024)return 0;
+    if(scratch_picture_size<f.size){
+        auto *replacement=static_cast<uint8_t*>(malloc(f.size));
+        if(!replacement)return 0;
+        free(scratch_picture);scratch_picture=replacement;scratch_picture_size=f.size;
+    }
     for (Slot &s : slots) {
+        if(player_closing)return 0;
         void *mapped = nullptr;
         if (!gfx_buffer(f.size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
@@ -639,15 +660,9 @@ void *vmem_lock(void *opaque, void **out)
         /* Shouldn't happen; give VLC somewhere harmless to write. */
         if (diag_odd++ < 20)
             DIAG("diag: no picture buffer at all: VLC writes to a scratch one\n");
-        static uint8_t *scratch;
-        static VkDeviceSize scratch_size;
-        if (scratch_size < format.size) {
-            free(scratch);
-            scratch = (uint8_t *)malloc(format.size);
-            scratch_size = format.size;
-        }
-        for (int i = 0; i < PLANES; i++)
-            out[i] = scratch + format.offsets[i];
+        pic_freed.wait(g,[]{return !scratch_picture_busy;});
+        scratch_picture_busy=true;
+        for(int i=0;i<PLANES;++i)out[i]=scratch_picture+format.offsets[i];
         return (void *)(intptr_t)-1;
     }
     Slot &s = slots[found];
@@ -662,6 +677,7 @@ void vmem_unlock(void *opaque, void *picture, void *const *p)
     (void)opaque; (void)p;
     int i = (int)(intptr_t)picture;
     std::lock_guard<std::mutex> g(pic_lock);
+    if(i==-1){scratch_picture_busy=false;pic_freed.notify_all();return;}
     if (i >= 0 && i < SLOTS && slots[i].state == WRITING)
         slots[i].state = READY;
 }
@@ -730,7 +746,7 @@ int vlc_channels = 2;    /* what VLC was asked for (amem_setup) */
 bool night_mode;
 std::atomic<int> tone_channel{ -1 }; /* speaker test: a console channel 0-7, or -1 */
 std::atomic<bool> audio_running{ false };
-std::thread audio_thread;
+plexium::OwnedJob audio_thread;
 /* How long after plat_audio_output() returns its grain is heard: the grain
  * being played plus the one queued. */
 const int64_t AUDIO_LATENCY_US = 2 * AUDIO_GRAIN * 1000000LL / AUDIO_RATE;
@@ -759,7 +775,8 @@ libvlc_media_t *queued_media;
 void amem_play(void *opaque, const void *samples, unsigned count, int64_t pts)
 {
     (void)opaque;
-    if (stopping)
+    if(!samples || count==0 || count>4u*AUDIO_RATE)return;
+    if (stopping || player_closing)
         return;
     AudioBlock b;
     std::lock_guard<std::mutex> g(audio_lock);
@@ -807,7 +824,7 @@ void amem_drain(void *opaque)
     for (int i = 0; i < 200; i++) {
         {
             std::lock_guard<std::mutex> g(audio_lock);
-            if (audio_queue.empty())
+            if (audio_queue.empty() || stopping || player_closing)
                 return;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -1024,8 +1041,22 @@ std::vector<Track> tracks_from(libvlc_track_description_t *list)
     return out;
 }
 
+// Shader modules are temporary pipeline inputs, including every failed init.
+struct ShaderModules {
+    std::array<VkShaderModule,8> values{};size_t count=0;
+    VkShaderModule make(const uint32_t *code,size_t bytes){
+        if(count==values.size())return VK_NULL_HANDLE;
+        auto value=gfx_shader(code,bytes);if(value)values[count++]=value;return value;
+    }
+    ~ShaderModules(){for(size_t i=0;i<count;++i)vkDestroyShaderModule(gfx.device,values[i],nullptr);}
+};
+VkResult create_checked_pipeline(VkDevice device,VkPipelineCache cache,uint32_t count,const VkGraphicsPipelineCreateInfo *info,const VkAllocationCallbacks *allocator,VkPipeline *out){
+    for(uint32_t i=0;i<count;++i)for(uint32_t j=0;j<info[i].stageCount;++j)if(!info[i].pStages[j].module)return VK_ERROR_INITIALIZATION_FAILED;
+    return vkCreateGraphicsPipelines(device,cache,count,info,allocator,out);
+}
 bool create_pipeline()
 {
+    ShaderModules shaders;
     VkSamplerCreateInfo si = { VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
     si.magFilter = VK_FILTER_LINEAR;
     si.minFilter = VK_FILTER_LINEAR;
@@ -1069,8 +1100,8 @@ bool create_pipeline()
     if (vkCreatePipelineLayout(gfx.device, &pl, nullptr, &pipe_layout) != VK_SUCCESS)
         return false;
 
-    VkShaderModule vs = gfx_shader(spv_video_vert, sizeof(spv_video_vert));
-    VkShaderModule fs = gfx_shader(spv_video_frag, sizeof(spv_video_frag));
+    VkShaderModule vs = shaders.make(spv_video_vert, sizeof(spv_video_vert));
+    VkShaderModule fs = shaders.make(spv_video_frag, sizeof(spv_video_frag));
     VkPipelineShaderStageCreateInfo stages[2] = {};
     stages[0] = { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };
     stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
@@ -1113,11 +1144,11 @@ bool create_pipeline()
     gp.pDynamicState = &ds;
     gp.layout = pipe_layout;
     gp.renderPass = gfx.render_pass;
-    VkResult r = vkCreateGraphicsPipelines(gfx.device, VK_NULL_HANDLE, 1, &gp, nullptr, &pipeline);
+    VkResult r = create_checked_pipeline(gfx.device, VK_NULL_HANDLE, 1, &gp, nullptr, &pipeline);
     /* the same for HDR10 output's 10-bit frame */
     if (r == VK_SUCCESS && gfx.hdr_pass) {
         gp.renderPass = gfx.hdr_pass;
-        if (vkCreateGraphicsPipelines(gfx.device, VK_NULL_HANDLE, 1, &gp, nullptr, &pipeline_hdr) != VK_SUCCESS)
+        if (create_checked_pipeline(gfx.device, VK_NULL_HANDLE, 1, &gp, nullptr, &pipeline_hdr) != VK_SUCCESS)
             pipeline_hdr = VK_NULL_HANDLE;
     }
 
@@ -1159,7 +1190,7 @@ bool create_pipeline()
         rp.pDependencies = dep;
         if (vkCreateRenderPass(gfx.device, &rp, nullptr, &src_pass) == VK_SUCCESS) {
             gp.renderPass = src_pass;
-            if (vkCreateGraphicsPipelines(gfx.device, VK_NULL_HANDLE, 1, &gp, nullptr, &pipeline_src) != VK_SUCCESS)
+            if (create_checked_pipeline(gfx.device, VK_NULL_HANDLE, 1, &gp, nullptr, &pipeline_src) != VK_SUCCESS)
                 pipeline_src = VK_NULL_HANDLE;
         }
         /* upscale.frag: the image in, the rectangle out */
@@ -1197,45 +1228,45 @@ bool create_pipeline()
                  vkAllocateDescriptorSets(gfx.device, &uai, &mpv_set) == VK_SUCCESS;
         }
         if (ok) {
-            VkShaderModule uvs = gfx_shader(spv_fullscreen_vert, sizeof(spv_fullscreen_vert));
-            VkShaderModule ufs = gfx_shader(spv_upscale_frag, sizeof(spv_upscale_frag));
+            VkShaderModule uvs = shaders.make(spv_fullscreen_vert, sizeof(spv_fullscreen_vert));
+            VkShaderModule ufs = shaders.make(spv_upscale_frag, sizeof(spv_upscale_frag));
             stages[0].module = uvs;
             stages[1].module = ufs;
             gp.layout = up_layout;
             gp.renderPass = gfx.render_pass;
-            if (vkCreateGraphicsPipelines(gfx.device, VK_NULL_HANDLE, 1, &gp, nullptr, &pipeline_up) != VK_SUCCESS)
+            if (create_checked_pipeline(gfx.device, VK_NULL_HANDLE, 1, &gp, nullptr, &pipeline_up) != VK_SUCCESS)
                 pipeline_up = VK_NULL_HANDLE;
             if (pipeline_up && gfx.hdr_pass) {
                 gp.renderPass = gfx.hdr_pass;
-                if (vkCreateGraphicsPipelines(gfx.device, VK_NULL_HANDLE, 1, &gp, nullptr, &pipeline_up_hdr) !=
+                if (create_checked_pipeline(gfx.device, VK_NULL_HANDLE, 1, &gp, nullptr, &pipeline_up_hdr) !=
                     VK_SUCCESS)
                     pipeline_up_hdr = VK_NULL_HANDLE;
             }
             /* FSR 1: EASU into the middle image (pass 1's render pass:
              * the same kind of image), RCAS onto the screen */
-            VkShaderModule efs = gfx_shader(spv_fsr_easu_frag, sizeof(spv_fsr_easu_frag));
-            VkShaderModule rfs = gfx_shader(spv_fsr_rcas_frag, sizeof(spv_fsr_rcas_frag));
+            VkShaderModule efs = shaders.make(spv_fsr_easu_frag, sizeof(spv_fsr_easu_frag));
+            VkShaderModule rfs = shaders.make(spv_fsr_rcas_frag, sizeof(spv_fsr_rcas_frag));
             stages[1].module = efs;
             gp.renderPass = src_pass;
-            if (vkCreateGraphicsPipelines(gfx.device, VK_NULL_HANDLE, 1, &gp, nullptr, &pipeline_easu) != VK_SUCCESS)
+            if (create_checked_pipeline(gfx.device, VK_NULL_HANDLE, 1, &gp, nullptr, &pipeline_easu) != VK_SUCCESS)
                 pipeline_easu = VK_NULL_HANDLE;
             stages[1].module = rfs;
             gp.renderPass = gfx.render_pass;
-            if (vkCreateGraphicsPipelines(gfx.device, VK_NULL_HANDLE, 1, &gp, nullptr, &pipeline_rcas) != VK_SUCCESS)
+            if (create_checked_pipeline(gfx.device, VK_NULL_HANDLE, 1, &gp, nullptr, &pipeline_rcas) != VK_SUCCESS)
                 pipeline_rcas = VK_NULL_HANDLE;
             if (pipeline_rcas && gfx.hdr_pass) {
                 gp.renderPass = gfx.hdr_pass;
-                if (vkCreateGraphicsPipelines(gfx.device, VK_NULL_HANDLE, 1, &gp, nullptr, &pipeline_rcas_hdr) !=
+                if (create_checked_pipeline(gfx.device, VK_NULL_HANDLE, 1, &gp, nullptr, &pipeline_rcas_hdr) !=
                     VK_SUCCESS)
                     pipeline_rcas_hdr = VK_NULL_HANDLE;
             }
             /* mpv's shaders: the brightness pass into an image, the merge
              * (two textures) onto the screen */
-            VkShaderModule lfs = gfx_shader(spv_mpv_luma_frag, sizeof(spv_mpv_luma_frag));
-            VkShaderModule mfs = gfx_shader(spv_mpv_merge_frag, sizeof(spv_mpv_merge_frag));
+            VkShaderModule lfs = shaders.make(spv_mpv_luma_frag, sizeof(spv_mpv_luma_frag));
+            VkShaderModule mfs = shaders.make(spv_mpv_merge_frag, sizeof(spv_mpv_merge_frag));
             stages[1].module = lfs;
             gp.renderPass = src_pass;
-            if (vkCreateGraphicsPipelines(gfx.device, VK_NULL_HANDLE, 1, &gp, nullptr, &pipeline_luma) != VK_SUCCESS)
+            if (create_checked_pipeline(gfx.device, VK_NULL_HANDLE, 1, &gp, nullptr, &pipeline_luma) != VK_SUCCESS)
                 pipeline_luma = VK_NULL_HANDLE;
             VkDescriptorSetLayoutBinding mb[2] = { ub, ub };
             mb[1].binding = 1;
@@ -1260,12 +1291,12 @@ bool create_pipeline()
                     stages[1].module = mfs;
                     gp.layout = merge_layout;
                     gp.renderPass = gfx.render_pass;
-                    if (vkCreateGraphicsPipelines(gfx.device, VK_NULL_HANDLE, 1, &gp, nullptr, &pipeline_merge) !=
+                    if (create_checked_pipeline(gfx.device, VK_NULL_HANDLE, 1, &gp, nullptr, &pipeline_merge) !=
                         VK_SUCCESS)
                         pipeline_merge = VK_NULL_HANDLE;
                     if (pipeline_merge && gfx.hdr_pass) {
                         gp.renderPass = gfx.hdr_pass;
-                        if (vkCreateGraphicsPipelines(gfx.device, VK_NULL_HANDLE, 1, &gp, nullptr,
+                        if (create_checked_pipeline(gfx.device, VK_NULL_HANDLE, 1, &gp, nullptr,
                                                       &pipeline_merge_hdr) != VK_SUCCESS)
                             pipeline_merge_hdr = VK_NULL_HANDLE;
                     }
@@ -1274,12 +1305,12 @@ bool create_pipeline()
             gp.layout = up_layout;
             if (!mpv_init(src_pass, sampler))
                 fprintf(stderr, "player: mpv shaders not available\n");
-            vkDestroyShaderModule(gfx.device, lfs, nullptr);
-            vkDestroyShaderModule(gfx.device, mfs, nullptr);
-            vkDestroyShaderModule(gfx.device, efs, nullptr);
-            vkDestroyShaderModule(gfx.device, rfs, nullptr);
-            vkDestroyShaderModule(gfx.device, uvs, nullptr);
-            vkDestroyShaderModule(gfx.device, ufs, nullptr);
+
+
+
+
+
+
         }
         VkQueryPoolCreateInfo qi = { VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO };
         qi.queryType = VK_QUERY_TYPE_TIMESTAMP;
@@ -1293,8 +1324,8 @@ bool create_pipeline()
                 pipeline_easu && pipeline_rcas ? "ready" : "not available",
                 pipeline_luma && pipeline_merge ? "ready" : "not available");
     }
-    vkDestroyShaderModule(gfx.device, vs, nullptr);
-    vkDestroyShaderModule(gfx.device, fs, nullptr);
+
+
     return r == VK_SUCCESS;
 }
 
@@ -1316,7 +1347,7 @@ void destroy_planes()
 /* New format from VLC: plane textures to match (render thread). */
 bool make_planes(const Format &f)
 {
-    if(vkDeviceWaitIdle(gfx.device)!=VK_SUCCESS)return false; /* retain old planes until completion is known */
+    if(!gfx_wait_queue())return false; /* retain old planes until completion is known */
     destroy_planes();
     VkFormat vf = f.ten_bit ? VK_FORMAT_R16_UNORM : VK_FORMAT_R8_UNORM;
     VkFormat vf2 = f.ten_bit ? VK_FORMAT_R16G16_UNORM : VK_FORMAT_R8G8_UNORM;
@@ -1425,11 +1456,9 @@ void cpu_probe()
     work();
     double one = plat_time() - t0;
     t0 = plat_time();
-    std::thread th[THREADS];
-    for (std::thread &t : th)
-        t = std::thread(work);
-    for (std::thread &t : th)
-        t.join();
+    plexium::OwnedJob th[THREADS];
+    for(auto &t:th)if(t.start(work)){fprintf(stderr,"cpu: probe worker unavailable\n");return;}
+    for(auto &t:th)t.wait(std::chrono::milliseconds(5000));
     double all = plat_time() - t0;
     fprintf(stderr, "cpu: one thread %.1f ms, %d at once %.1f ms: about %.1f cores at work "
             "(hardware_concurrency %u)\n", one * 1000, THREADS, all * 1000,
@@ -1460,7 +1489,7 @@ void load_decode_mode()
  * interface's thread (the health check, every second), they once waited
  * 8.9 s for a live stream that was ending, and the whole app froze
  * (2026-10-13). The interface takes the latest copy. */
-std::thread stats_thread;
+plexium::OwnedJob stats_thread;
 std::atomic<bool> stats_run;
 std::mutex stats_lock;
 libvlc_media_stats_t stats_copy;
@@ -1629,12 +1658,15 @@ struct CopyPool {
     std::condition_variable start, done;
     CopyJob job;
     unsigned serial, finished;
-    bool started;
+    bool started,closing=false;
+    unsigned workers=0;
+    plexium::Worker threads[COPY_THREADS-1];
+    int parts[COPY_THREADS-1];
     std::mutex use;   /* one picture at a time */
 };
-/* Never destroyed: its threads wait on it to the end, and destroying a
- * condition variable they wait on hung the exit (host runs, glibc). */
-CopyPool &copy_pool = *new CopyPool();
+/* Owned workers are signaled and joined after VLC callbacks quiesce, before
+ * the pool or its condition variables can be destroyed. */
+CopyPool copy_pool;
 
 void copy_rows(const CopyJob &j, int part, int parts)
 {
@@ -1668,13 +1700,14 @@ void copy_worker(int part)
         CopyJob j;
         {
             std::unique_lock<std::mutex> g(copy_pool.lock);
-            copy_pool.start.wait(g, [&] { return copy_pool.serial != seen; });
+            copy_pool.start.wait(g, [&] { return copy_pool.closing || copy_pool.serial != seen; });
+            if(copy_pool.closing)return;
             seen = copy_pool.serial;
             j = copy_pool.job;
         }
-        copy_rows(j, part, COPY_THREADS);
+        copy_rows(j, part, copy_pool.workers+1);
         std::lock_guard<std::mutex> g(copy_pool.lock);
-        if (++copy_pool.finished == COPY_THREADS - 1)
+        if (++copy_pool.finished == copy_pool.workers)
             copy_pool.done.notify_one();
     }
 }
@@ -1707,11 +1740,15 @@ static void copy_run(const CopyJob &j)
         return;
     }
     std::lock_guard<std::mutex> use(copy_pool.use);
+    if(copy_pool.closing){copy_rows(j,0,1);return;}
     {
         std::lock_guard<std::mutex> g(copy_pool.lock);
         if (!copy_pool.started) {
-            for (int i = 1; i < COPY_THREADS; i++)
-                std::thread(copy_worker, i).detach();
+            for (int i=0;i<COPY_THREADS-1;++i){
+                copy_pool.parts[i]=i+1;
+                if(copy_pool.threads[i].start([](void *p)->void*{copy_worker(*static_cast<int*>(p));return nullptr;},&copy_pool.parts[i]))break;
+                ++copy_pool.workers;
+            }
             copy_pool.started = true;
         }
         copy_pool.job = j;
@@ -1719,9 +1756,9 @@ static void copy_run(const CopyJob &j)
         copy_pool.serial++;
     }
     copy_pool.start.notify_all();
-    copy_rows(j, 0, COPY_THREADS);   /* this thread does the first part */
+    copy_rows(j, 0, copy_pool.workers+1);   /* this thread does the first part */
     std::unique_lock<std::mutex> g(copy_pool.lock);
-    copy_pool.done.wait(g, [] { return copy_pool.finished == COPY_THREADS - 1; });
+    copy_pool.done.wait(g, [] { return copy_pool.finished == copy_pool.workers; });
 }
 
 extern "C" void vlc_ps5_copy_plane(uint8_t *dst, size_t dst_pitch, const uint8_t *src,
@@ -1742,17 +1779,32 @@ extern "C" void vlc_ps5_vdec_failed(void)
     vdec_failed = true;
 }
 
+extern "C" int vlc_ps5_vdec_cleanup_is_failed(){return vdec_cleanup_failed.load()?1:0;}
+extern "C" void vlc_ps5_vdec_cleanup_failed(){vdec_cleanup_failed=true;}
 extern "C" void vlc_ps5_vdec_active(int on)
 {
     vdec_active += on ? 1 : -1;
     info_stale = true;
 }
 
+namespace {
+void stop_copy_workers(){
+    std::lock_guard<std::mutex> use(copy_pool.use);
+    {std::lock_guard<std::mutex> lock(copy_pool.lock);copy_pool.closing=true;}
+    copy_pool.start.notify_all();
+    for(auto &thread:copy_pool.threads)thread.join();
+    copy_pool.workers=0;copy_pool.started=false;
+}
+}
 bool player_init()
 {
+    if(native_phase==PlayerPhase::Ready)return true;
+    if(native_phase!=PlayerPhase::Uninitialized && native_phase!=PlayerPhase::Released)return false;
+    if(!auxiliary_jobs.reopen())return false;
+    player_closing=false;copy_pool.closing=false;release_complete=false;phase(PlayerPhase::Initializing);
     if (!create_pipeline()) {
         fprintf(stderr, "player: video pipeline failed\n");
-        return false;
+        phase(PlayerPhase::Error);return false;
     }
     cpu_probe();
     load_decode_mode();
@@ -1802,7 +1854,7 @@ bool player_init()
     vlc = libvlc_new(sizeof(args) / sizeof(*args), args);
     if (!vlc) {
         fprintf(stderr, "player: libvlc_new failed: %s\n", libvlc_errmsg());
-        return false;
+        phase(PlayerPhase::Error);return false;
     }
     /* VLC's messages through our own callback: VLC's console logger crashed on
      * the console (its putc_unlocked macro reads FILE internals the console's
@@ -1811,7 +1863,7 @@ bool player_init()
     fprintf(stderr, "player: libvlc_media_player_new\n");
     libvlc_set_user_agent(vlc, "VLC media player", "VLC/3.0.24 PS5");
     mp = libvlc_media_player_new(vlc);
-    if (!mp) { fprintf(stderr, "player: media player allocation failed\n"); return false; }
+    if (!mp) { fprintf(stderr, "player: media player allocation failed\n");phase(PlayerPhase::Error);return false; }
     fprintf(stderr, "player: callbacks\n");
     libvlc_video_set_callbacks(mp, vmem_lock, vmem_unlock, vmem_display, nullptr);
     libvlc_video_set_format_callbacks(mp, vmem_setup, vmem_cleanup);
@@ -1826,11 +1878,12 @@ bool player_init()
     fprintf(stderr, "player: audio port\n");
     if (plat_audio_open()) {
         audio_running = true;
-        audio_thread = std::thread(audio_main);
-    }
+        if(audio_thread.start(audio_main)){audio_running=false;phase(PlayerPhase::Error);return false;}
+    }else{phase(PlayerPhase::Error);return false;}
     fprintf(stderr, "player: libvlc %s ready\n", libvlc_get_version());
     stats_run = true;
-    stats_thread = std::thread(stats_loop);
+    if(stats_thread.start(stats_loop)){stats_run=false;phase(PlayerPhase::Error);return false;}
+    phase(PlayerPhase::Ready);
     return true;
 }
 
@@ -1847,13 +1900,9 @@ static double pause_wanted_at;
  * for a network stream that took 200-400 ms on the console (run 16), and
  * on the interface's thread the screen stalled black when leaving a channel.
  * The stop runs in the background; opening something waits for it first. */
-static std::thread stopper;
+static plexium::OwnedJob stopper;
 
-static void wait_for_stop()
-{
-    if (stopper.joinable())
-        stopper.join();
-}
+static bool wait_for_stop(){return stopper.wait(std::chrono::milliseconds(2000));}
 
 extern "C" int vlc_ps5_stream_cancelled(long serial)
 {
@@ -1866,45 +1915,67 @@ static void stop_in_background()
         cancelled_serial = started_serial;
     /* already stopping: nothing new can have started since (an open waits
      * for the stop), and waiting for it here froze the app */
-    if (stopping)
+    if (stopping || player_closing)
         return;
-    wait_for_stop();
+    if(!wait_for_stop()){phase(PlayerPhase::Error);return;}
     if (mp) {
         libvlc_media_player_t *p = mp;
         stopping = true;
-        stopper = std::thread([p] {
+        phase(PlayerPhase::Stopping);
+        int rc=stopper.start([p] {
             /* host tests: VLCPS5_SLOW_STOP=<ms> plays a stop stuck on a
              * network stream (the console's 9 s, run 12) */
             if (const char *slow = getenv("VLCPS5_SLOW_STOP"))
                 usleep(atoi(slow) * 1000);
             libvlc_media_player_stop(p);
-            stopping = false;
+            stopping = false;phase(PlayerPhase::Stopped);
         });
+        if(rc){stopping=false;phase(PlayerPhase::Error);fprintf(stderr,"player: stop worker start failed code=%d\n",rc);}
     }
 }
 
-void player_shutdown()
-{
-    stats_run = false;
-    if (stats_thread.joinable())
-        stats_thread.join();
-    wait_for_stop();
-    if (mp) {
-        libvlc_media_player_stop(mp);
-        libvlc_media_player_release(mp);
-        mp = nullptr;
-    }
-    if (last_media) {
-        libvlc_media_release(last_media);
-        last_media = nullptr;
-    }
-    audio_running = false;
-    if (audio_thread.joinable())
-        audio_thread.join();
-    if (vlc)
-        libvlc_release(vlc);
-    vlc = nullptr;
+void player_request_shutdown(){
+    player_closing=true;stats_run=false;audio_running=false;
+    if(started_serial>cancelled_serial)cancelled_serial=started_serial;
+    pic_freed.notify_all();
 }
+bool player_shutdown()
+{
+    if(native_phase==PlayerPhase::Released)return true;
+    if(native_phase==PlayerPhase::Error)phase(PlayerPhase::Recovery);
+    release_timed_out=false;player_request_shutdown();
+    if(started_serial>cancelled_serial)cancelled_serial=started_serial;
+    pic_freed.notify_all();
+    if(!stats_thread.wait(std::chrono::milliseconds(2000)) ||
+       !audio_thread.wait(std::chrono::milliseconds(2000)) ||
+       !auxiliary_jobs.close(std::chrono::milliseconds(2000))){
+        release_timed_out=true;phase(PlayerPhase::Error);return false; // global owners retain all live state
+    }
+    if(!wait_for_stop()){release_timed_out=true;phase(PlayerPhase::Error);return false;}
+    if(!release_complete){
+        if(!release_job.joinable()){
+            phase(PlayerPhase::Stopping);stopping=true;
+            if(release_job.start([]{
+                if(mp){libvlc_media_player_stop(mp);libvlc_media_player_release(mp);mp=nullptr;}
+                if(queued_media){libvlc_media_release(queued_media);queued_media=nullptr;}
+                if(last_media){libvlc_media_release(last_media);last_media=nullptr;}
+                if(vlc){libvlc_log_unset(vlc);libvlc_release(vlc);vlc=nullptr;}
+                stopping=false;
+            })){phase(PlayerPhase::Error);return false;}
+        }
+        if(!release_job.wait(std::chrono::milliseconds(2000))){release_timed_out=true;phase(PlayerPhase::Error);return false;}
+        release_complete=true;
+    }
+    stop_copy_workers();
+    {std::lock_guard<std::mutex> lock(audio_lock);audio_clear_locked();audio_paused=false;}
+    {std::lock_guard<std::mutex> lock(side.lock);++side.serial;side.path.clear();side.uris.clear();side.ready=false;}
+    {std::lock_guard<std::mutex> lock(pending_lock);pending_subs.clear();}
+    if(!plat_audio_close() || vdec_active.load()!=0 || vdec_cleanup_failed){phase(PlayerPhase::Error);return false;}
+    phase(PlayerPhase::Released);return true;
+}
+bool player_shutdown_timed_out(){return release_timed_out;}
+bool player_decoder_cleanup_failed(){return vdec_cleanup_failed.load();}
+PlayerPhase player_phase(){return native_phase.load();}
 
 libvlc_instance_t *player_vlc()
 {
@@ -1918,6 +1989,7 @@ static libvlc_state_t state();
 
 bool player_open(const std::string &path, int64_t start_ms, const std::vector<std::string> &options)
 {
+    if(player_closing || vdec_cleanup_failed || !mp || !vlc)return false;
     /* A file, or a network link (http://, https://, udp://, rtp://, ftp://, smb://...). */
     bool url = path.find("://") != std::string::npos;
     libvlc_media_t *m = url ? libvlc_media_new_location(vlc, path.c_str())
@@ -2129,7 +2201,7 @@ void side_subs_find(const std::string &url, int serial)
     libvlc_instance_t *inst = vlc;
     libvlc_retain(inst);
     std::string hint = sub_lang_hint();
-    std::thread([=]() {
+    if(!auxiliary_jobs.start([=]() {
         std::vector<std::string> uris;
         if (link) {
             /* No folder to list: the one most links have beside them. */
@@ -2185,7 +2257,7 @@ void side_subs_find(const std::string &url, int serial)
         side.path = url;
         side.uris = uris;
         side.ready = true;
-    }).detach();
+    }))libvlc_release(inst);
 }
 
 /* Found ones go in once the video plays: the first turned on (unless
@@ -2262,6 +2334,7 @@ static void player_choice_float(const char *name, float v)
 bool player_open_media(libvlc_media_t *m, const std::string &path, int64_t start_ms,
                        const std::vector<std::string> &options)
 {
+    if(player_closing || vdec_cleanup_failed || !mp){if(m)libvlc_media_release(m);return false;}
     subtitle_auto_pending=false;
     subtitle_latch.begin(path==kept.path,player_sub_language()=="off");
     opened_from_ms = start_ms;
@@ -2399,7 +2472,8 @@ static bool start_queued()
     if (!m)
         return false;
     queued_media = nullptr;
-    wait_for_stop();
+    if(!wait_for_stop()){queued_media=m;phase(PlayerPhase::Error);return false;}
+    phase(PlayerPhase::Opening);
     started_serial = queued_serial;
     libvlc_media_player_set_media(mp, m);
     stats_forget(); /* until now the media was the video before */
@@ -2431,7 +2505,7 @@ static bool start_queued()
     /* the health check counts from the real start, not the queueing */
     if (health.next < plat_time() + 3)
         health.next = plat_time() + 3;
-    return libvlc_media_player_play(mp) == 0;
+    bool ok=libvlc_media_player_play(mp)==0;phase(ok?PlayerPhase::Playing:PlayerPhase::Error);return ok;
 }
 
 DecodeMode player_decode_mode()
@@ -2678,13 +2752,16 @@ PlayerEvent player_tick()
 
 void player_stop()
 {
+    if(player_closing || native_phase==PlayerPhase::Released || native_phase==PlayerPhase::Uninitialized)return;
     live_paused = false;
     pause_wanted = -1;
     if (queued_media) {   /* stopped before it even started */
         libvlc_media_release(queued_media);
         queued_media = nullptr;
     }
-    stop_in_background();
+    {std::lock_guard<std::mutex> lock(side.lock);++side.serial;side.ready=false;side.uris.clear();}
+    {std::lock_guard<std::mutex> lock(pending_lock);pending_subs.clear();}
+    if(native_phase!=PlayerPhase::Stopped)stop_in_background();
     std::lock_guard<std::mutex> g(audio_lock);
     audio_clear_locked();
     audio_paused = false;
@@ -3078,12 +3155,12 @@ bool player_add_subtitle(const std::string &path, bool allow_reopen)
         std::string hint = sub_lang_hint();
         libvlc_instance_t *inst = vlc;
         libvlc_retain(inst);
-        std::thread([=]() {
+        if(!auxiliary_jobs.start([=]() {
             std::string ready = sub_ready(path, hint);
             libvlc_release(inst);
             std::lock_guard<std::mutex> g(pending_lock);
             pending_subs.push_back({ path, ready, serial, selection, allow_reopen });
-        }).detach();
+        })){libvlc_release(inst);return false;}
         return true;
     }
     /* not UTF-8: a converted copy */
@@ -3371,7 +3448,7 @@ static bool ensure_image(SrcImage &img, uint32_t w, uint32_t h, VkDescriptorSet 
     if (img.image && img.w == w && img.h == h)
         return true;
     if (img.image)
-        vkDeviceWaitIdle(gfx.device); /* the old one may still be read */
+        if(!gfx_wait_queue())return false; /* retain old ownership on timeout */
     image_generation++;
     if (img.fb)
         vkDestroyFramebuffer(gfx.device, img.fb, nullptr);
@@ -3577,7 +3654,7 @@ void video_prepare(VkCommandBuffer cmd, float rect_w, float rect_h)
         if (mpv_record(cmd, MPV_FSRCNNX, { lumaimg.view, w, h }, uw, uh, &out)) {
             if (merge_written[0] != image_generation || merge_written[1] != mpv_plan_id() + 1) {
                 if (merge_written[1])
-                    vkDeviceWaitIdle(gfx.device); /* frames before may still read the set */
+                    if(!gfx_wait_queue())return; /* retain descriptors on timeout */
                 VkDescriptorImageInfo ii[2] = { { sampler, srcimg.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL },
                                                 { sampler, out.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL } };
                 VkWriteDescriptorSet wr[2] = {};
@@ -3604,7 +3681,7 @@ void video_prepare(VkCommandBuffer cmd, float rect_w, float rect_h)
         if (mpv_record(cmd, set, { srcimg.view, w, h }, uw, uh, &out)) {
             if (mpv_set_written[1] != mpv_plan_id() + 1) {
                 if (mpv_set_written[1])
-                    vkDeviceWaitIdle(gfx.device); /* frames before may still read the set */
+                    if(!gfx_wait_queue())return; /* retain descriptors on timeout */
                 VkDescriptorImageInfo ii = { sampler, out.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
                 VkWriteDescriptorSet wr = { VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
                 wr.dstSet = mpv_set;
@@ -3860,8 +3937,7 @@ bool player_screenshot(const std::string &path)
     shot.w = shot.f.vis_w ? shot.f.vis_w : shot.f.width;
     shot.h = shot.f.vis_h ? shot.f.vis_h : shot.f.height;
     shot.path = path;
-    std::thread(shot_main, std::move(shot)).detach();
-    return true;
+    return auxiliary_jobs.start([shot=std::move(shot)]()mutable{shot_main(std::move(shot));});
 }
 
 int player_eq_presets()
@@ -4064,4 +4140,40 @@ void player_spectrum(float *bands, int n)
         float db = 20 * log10f(mag + 1e-6f);
         bands[b] = std::min(1.0f, std::max(0.0f, (db + 54) / 54));
     }
+}
+
+// Render-thread only, after player_shutdown and successful graphics drain.
+bool video_shutdown(){
+    if(native_phase!=PlayerPhase::Released)return false;
+    mpv_shutdown();
+    std::lock_guard<std::mutex> lock(pic_lock);
+    if(scratch_picture_busy)return false;
+    for(auto &slot:slots){
+        if(slot.mapped && slot.memory)vkUnmapMemory(gfx.device,slot.memory);
+        if(slot.buffer)vkDestroyBuffer(gfx.device,slot.buffer,nullptr);
+        if(slot.memory)vkFreeMemory(gfx.device,slot.memory,nullptr);
+        slot={};
+    }
+    for(auto &item:garbage){if(item.memory)vkUnmapMemory(gfx.device,item.memory);if(item.buffer)vkDestroyBuffer(gfx.device,item.buffer,nullptr);if(item.memory)vkFreeMemory(gfx.device,item.memory,nullptr);}
+    garbage.clear();destroy_planes();
+    free(scratch_picture);scratch_picture=nullptr;scratch_picture_size=0;scratch_picture_busy=false;
+    for(auto *image:{&srcimg,&midimg,&lumaimg}){
+        if(image->fb)vkDestroyFramebuffer(gfx.device,image->fb,nullptr);
+        if(image->view)vkDestroyImageView(gfx.device,image->view,nullptr);
+        if(image->image)vkDestroyImage(gfx.device,image->image,nullptr);
+        if(image->memory)vkFreeMemory(gfx.device,image->memory,nullptr);
+        *image={};
+    }
+    for(auto *value:{&pipeline,&pipeline_hdr,&pipeline_src,&pipeline_up,&pipeline_up_hdr,&pipeline_easu,&pipeline_rcas,&pipeline_rcas_hdr,&pipeline_luma,&pipeline_merge,&pipeline_merge_hdr}){
+        if(*value)vkDestroyPipeline(gfx.device,*value,nullptr);*value=VK_NULL_HANDLE;
+    }
+    for(auto *value:{&pipe_layout,&up_layout,&merge_layout}){if(*value)vkDestroyPipelineLayout(gfx.device,*value,nullptr);*value=VK_NULL_HANDLE;}
+    for(auto *value:{&desc_pool,&up_pool,&merge_pool}){if(*value)vkDestroyDescriptorPool(gfx.device,*value,nullptr);*value=VK_NULL_HANDLE;}
+    for(auto *value:{&set_layout,&up_set_layout,&merge_set_layout}){if(*value)vkDestroyDescriptorSetLayout(gfx.device,*value,nullptr);*value=VK_NULL_HANDLE;}
+    if(sampler)vkDestroySampler(gfx.device,sampler,nullptr);sampler=VK_NULL_HANDLE;
+    if(src_pass)vkDestroyRenderPass(gfx.device,src_pass,nullptr);src_pass=VK_NULL_HANDLE;
+    if(time_pool)vkDestroyQueryPool(gfx.device,time_pool,nullptr);time_pool=VK_NULL_HANDLE;
+    desc_set=up_set=mid_set=merge_set=mpv_set=luma_set=VK_NULL_HANDLE;
+    mpv_out={};shown=last_slot=-1;format={};planes.has_picture=false;
+    return true;
 }

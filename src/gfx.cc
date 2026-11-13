@@ -16,6 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <vector>
+#include <optional>
 
 #include "platform.h"
 #include "gen/fullscreen_vert.h"
@@ -52,12 +53,13 @@ Frame frames[GFX_FRAMES];
 uint32_t image_index;
 uint64_t completed;
 bool frame_failed;
+VkResult last_result=VK_SUCCESS;
 constexpr uint64_t frame_timeout_ns = 5ULL * 1000 * 1000 * 1000;
 bool frame_result(VkResult result, const char *operation)
 {
     if (result == VK_SUCCESS) return true;
     fprintf(stderr, "gfx: %s failed: %d; frame processing stopped\n", operation, result);
-    frame_failed = true;
+    frame_failed = true;last_result=result;
     return false;
 }
 VkCommandPool setup_pool;
@@ -629,7 +631,7 @@ bool gfx_set_hdr(bool on)
     if (on && !gfx.hdr_pass)
         return false;
     /* nothing drawn in one format may land after the switch */
-    vkDeviceWaitIdle(gfx.device);
+    if(!gfx_wait_queue())return false;
     int rc;
     if (vlcps5_wsi_videoout_set_hdr)
         rc = vlcps5_wsi_videoout_set_hdr(on ? 1 : 0);
@@ -650,7 +652,7 @@ bool gfx_set_refresh(int mode, int *period_us)
     if (!vlcps5_wsi_videoout_set_refresh)
         return false;
     /* nothing in flight while the output changes */
-    vkDeviceWaitIdle(gfx.device);
+    if(!gfx_wait_queue())return false;
     return vlcps5_wsi_videoout_set_refresh(mode, period_us) == 0;
 }
 
@@ -687,13 +689,38 @@ void gfx_draw_ui_layer(VkCommandBuffer cmd)
     vkCmdDraw(cmd, 3, 1, 0, 0);
 }
 
-bool gfx_shutdown()
-{
-    if (!gfx.device) return true;
-    return frame_result(vkDeviceWaitIdle(gfx.device), "shutdown device wait");
+namespace {
+// One uncertain queue operation disables further work. Its fence/command stays
+// owned here until a successful drain, or until process teardown.
+struct QueueWork {VkFence fence;VkCommandBuffer command;};
+std::optional<QueueWork> uncertain_work;
+bool queue_closed=false;
+VkResult submit_bounded(VkCommandBuffer command) {
+    if(queue_closed)return VK_ERROR_DEVICE_LOST;
+    VkFence fence=VK_NULL_HANDLE;
+    VkFenceCreateInfo fi{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+    auto rc=vkCreateFence(gfx.device,&fi,nullptr,&fence);
+    if(rc!=VK_SUCCESS)return rc;
+    VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+    if(command){si.commandBufferCount=1;si.pCommandBuffers=&command;}
+    rc=vkQueueSubmit(gfx.queue,1,&si,fence);
+    if(rc==VK_SUCCESS)rc=vkWaitForFences(gfx.device,1,&fence,VK_TRUE,frame_timeout_ns);
+    if(rc!=VK_SUCCESS){
+        queue_closed=true;uncertain_work=QueueWork{fence,command};
+        return rc;
+    }
+    vkDestroyFence(gfx.device,fence,nullptr);return VK_SUCCESS;
 }
+}
+bool gfx_wait_queue(){
+    if(!gfx.device)return true;
+    return frame_result(submit_bounded(VK_NULL_HANDLE),"bounded queue drain");
+}
+VkResult gfx_last_result(){return last_result;}
+bool gfx_healthy(){return !frame_failed && !queue_closed;}
+bool gfx_shutdown(){return gfx_wait_queue();}
 
-void gfx_destroy()
+bool gfx_destroy(bool presentation_complete)
 {
     // The owner has already stopped workers/player, established device idle,
     // and destroyed texture/ImGui resources. Swapchain images belong to WSI.
@@ -719,6 +746,16 @@ void gfx_destroy()
             if(f.acquired) vkDestroySemaphore(gfx.device,f.acquired,nullptr);
         }
         if(setup_pool) vkDestroyCommandPool(gfx.device,setup_pool,nullptr);
+        // A graphics fence does not prove that a display engine stopped reading
+        // swapchain images. Retain WSI dependencies without present-wait proof.
+        if(swapchain && !presentation_complete){
+            framebuffers.clear();views.clear();hdr={};
+            for(auto &f:frames)f={};setup_pool=VK_NULL_HANDLE;
+            offscreen_memory=readback_memory=VK_NULL_HANDLE;readback=VK_NULL_HANDLE;readback_mapped=nullptr;
+            gfx.render_pass=gfx.hdr_pass=VK_NULL_HANDLE;
+            fprintf(stderr,"gfx: WSI/device retained: presentation completion unavailable\n");
+            return false;
+        }
         for(auto semaphore:rendered) if(semaphore) vkDestroySemaphore(gfx.device,semaphore,nullptr);
         if(swapchain) vkDestroySwapchainKHR(gfx.device,swapchain,nullptr);
         vkDestroyDevice(gfx.device,nullptr);
@@ -730,6 +767,7 @@ void gfx_destroy()
     for(auto &f:frames)f={};
     setup_pool=VK_NULL_HANDLE;offscreen_memory=readback_memory=VK_NULL_HANDLE;
     readback=VK_NULL_HANDLE;readback_mapped=nullptr;completed=0;image_index=0;pass_now=PASS_NONE;
+    return true;
 }
 
 VkCommandBuffer gfx_begin_frame()
@@ -968,7 +1006,7 @@ VkShaderModule gfx_shader(const uint32_t *code, size_t size)
 static bool upload_unavailable;
 VkCommandBuffer gfx_one_shot_begin()
 {
-    if(upload_unavailable)return VK_NULL_HANDLE;
+    if(upload_unavailable || queue_closed || frame_failed)return VK_NULL_HANDLE;
     VkCommandBufferAllocateInfo ai = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
     ai.commandPool = setup_pool;
     ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
@@ -1000,20 +1038,11 @@ bool gfx_one_shot_end(VkCommandBuffer cmd, bool *pending)
         vkFreeCommandBuffers(gfx.device,setup_pool,1,&cmd);
         return false;
     }
-    VkSubmitInfo si = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
-    si.commandBufferCount = 1;
-    si.pCommandBuffers = &cmd;
-    result=vkQueueSubmit(gfx.queue,1,&si,VK_NULL_HANDLE);
+    result=submit_bounded(cmd);
     if(result!=VK_SUCCESS) {
-        fprintf(stderr,"gfx: upload submit failed result=%d; uploads disabled, restart required\n",result);
+        fprintf(stderr,"gfx: upload completion failed result=%d; resources retained\n",result);
         upload_unavailable=true;if(pending)*pending=true;
-        return false; // conservatively retain resources if queue acceptance is unknown
-    }
-    result=vkQueueWaitIdle(gfx.queue);
-    if(result!=VK_SUCCESS) {
-        fprintf(stderr,"gfx: upload GPU wait failed result=%d; uploads disabled, restart required\n",result);
-        upload_unavailable=true;if(pending)*pending=true;
-        return false; // one bounded upload batch is retained until device/process teardown
+        frame_failed=true;return false;
     }
     vkFreeCommandBuffers(gfx.device,setup_pool,1,&cmd);
     return true;

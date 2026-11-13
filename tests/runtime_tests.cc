@@ -24,7 +24,9 @@ int main(){
   TEST_REQUIRE(reusable.entries.capacity()==capacity); // persistent render buffer retains its allocation
   reusable.message="local-only";access.base="local-only";
   runtime.snapshot_into(reusable,access);TEST_REQUIRE(reusable.message.empty()&&access.base.empty());
-  release.set_value();for(int i=0;i<5000&&runtime.snapshot().busy;++i)std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  TEST_REQUIRE(!runtime.close(std::chrono::milliseconds(0)) && runtime.media_context().token.empty());
+  TEST_REQUIRE(!runtime.send({Action::Restore,{},{}}));
+  release.set_value();TEST_REQUIRE(runtime.close(std::chrono::seconds(5)));for(int i=0;i<5000&&runtime.snapshot().busy;++i)std::this_thread::sleep_for(std::chrono::milliseconds(1));
   TEST_REQUIRE(!runtime.snapshot().busy);TEST_REQUIRE(runtime.snapshot().screen==Screen::Welcome);TEST_REQUIRE(runtime.snapshot().message.empty());
  }
  // A successful worker result must be copied from Session before its borrowed

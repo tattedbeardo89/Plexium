@@ -296,6 +296,12 @@ struct ImGui_ImplVulkan_Data
     VkDescriptorSet             SamplerNearestDS;
     VkCommandPool               TexCommandPool;
     VkCommandBuffer             TexCommandBuffer;
+    VkFence                     UploadFence;
+    VkBuffer                    UploadBuffer;
+    VkDeviceMemory              UploadMemory;
+    bool                        UploadFailed;
+    bool                        UploadPending;
+    bool                        UploadsClosed;
 
     // Render buffers for main window
     ImGui_ImplVulkan_WindowRenderBuffers MainWindowRenderBuffers;
@@ -462,7 +468,7 @@ static inline VkDeviceSize AlignBufferSize(VkDeviceSize size, VkDeviceSize align
     return (size + alignment - 1) & ~(alignment - 1);
 }
 
-static void CreateOrResizeBuffer(VkBuffer& buffer, VkDeviceMemory& buffer_memory, VkDeviceSize& buffer_size, VkDeviceSize new_size, VkBufferUsageFlagBits usage)
+static bool CreateOrResizeBuffer(VkBuffer& buffer, VkDeviceMemory& buffer_memory, VkDeviceSize& buffer_size, VkDeviceSize new_size, VkBufferUsageFlagBits usage)
 {
     ImGui_ImplVulkan_Data* bd = ImGui_ImplVulkan_GetBackendData();
     ImGui_ImplVulkan_InitInfo* v = &bd->VulkanInitInfo;
@@ -472,6 +478,7 @@ static void CreateOrResizeBuffer(VkBuffer& buffer, VkDeviceMemory& buffer_memory
     if (buffer_memory != VK_NULL_HANDLE)
         vkFreeMemory(v->Device, buffer_memory, v->Allocator);
 
+    buffer=VK_NULL_HANDLE;buffer_memory=VK_NULL_HANDLE;buffer_size=0;
     VkDeviceSize buffer_size_aligned = AlignBufferSize(IM_MAX(v->MinAllocationSize, new_size), bd->BufferMemoryAlignment);
     VkBufferCreateInfo buffer_info = {};
     buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -479,7 +486,7 @@ static void CreateOrResizeBuffer(VkBuffer& buffer, VkDeviceMemory& buffer_memory
     buffer_info.usage = usage;
     buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     err = vkCreateBuffer(v->Device, &buffer_info, v->Allocator, &buffer);
-    check_vk_result(err);
+    check_vk_result(err);if(err!=VK_SUCCESS)return false;
 
     VkMemoryRequirements req;
     vkGetBufferMemoryRequirements(v->Device, buffer, &req);
@@ -488,12 +495,13 @@ static void CreateOrResizeBuffer(VkBuffer& buffer, VkDeviceMemory& buffer_memory
     alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     alloc_info.allocationSize = req.size;
     alloc_info.memoryTypeIndex = ImGui_ImplVulkan_MemoryType(VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, req.memoryTypeBits);
+    if(alloc_info.memoryTypeIndex==0xFFFFFFFF){check_vk_result(VK_ERROR_FEATURE_NOT_PRESENT);return false;}
     err = vkAllocateMemory(v->Device, &alloc_info, v->Allocator, &buffer_memory);
-    check_vk_result(err);
+    check_vk_result(err);if(err!=VK_SUCCESS)return false;
 
     err = vkBindBufferMemory(v->Device, buffer, buffer_memory, 0);
-    check_vk_result(err);
-    buffer_size = buffer_size_aligned;
+    check_vk_result(err);if(err!=VK_SUCCESS)return false;
+    buffer_size = buffer_size_aligned;return true;
 }
 
 static void ImGui_ImplVulkan_SetupRenderState(ImDrawData* draw_data, VkPipeline pipeline, VkCommandBuffer command_buffer, ImGui_ImplVulkan_FrameRenderBuffers* rb, int fb_width, int fb_height)
@@ -566,6 +574,7 @@ void ImGui_ImplVulkan_RenderDrawData(ImDrawData* draw_data, VkCommandBuffer comm
                 ImGui_ImplVulkan_UpdateTexture(tex);
 
     ImGui_ImplVulkan_Data* bd = ImGui_ImplVulkan_GetBackendData();
+    if(bd->UploadFailed || bd->UploadsClosed)return;
     ImGui_ImplVulkan_InitInfo* v = &bd->VulkanInitInfo;
     if (pipeline == VK_NULL_HANDLE)
         pipeline = bd->Pipeline;
@@ -589,17 +598,17 @@ void ImGui_ImplVulkan_RenderDrawData(ImDrawData* draw_data, VkCommandBuffer comm
         VkDeviceSize vertex_size = AlignBufferSize(draw_data->TotalVtxCount * sizeof(ImDrawVert), bd->BufferMemoryAlignment);
         VkDeviceSize index_size = AlignBufferSize(draw_data->TotalIdxCount * sizeof(ImDrawIdx), bd->BufferMemoryAlignment);
         if (rb->VertexBuffer == VK_NULL_HANDLE || rb->VertexBufferSize < vertex_size)
-            CreateOrResizeBuffer(rb->VertexBuffer, rb->VertexBufferMemory, rb->VertexBufferSize, vertex_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+            if(!CreateOrResizeBuffer(rb->VertexBuffer, rb->VertexBufferMemory, rb->VertexBufferSize, vertex_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT)){bd->UploadFailed=true;return;}
         if (rb->IndexBuffer == VK_NULL_HANDLE || rb->IndexBufferSize < index_size)
-            CreateOrResizeBuffer(rb->IndexBuffer, rb->IndexBufferMemory, rb->IndexBufferSize, index_size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+            if(!CreateOrResizeBuffer(rb->IndexBuffer, rb->IndexBufferMemory, rb->IndexBufferSize, index_size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT)){bd->UploadFailed=true;return;}
 
         // Upload vertex/index data into a single contiguous GPU buffer
         ImDrawVert* vtx_dst = nullptr;
         ImDrawIdx* idx_dst = nullptr;
         VkResult err = vkMapMemory(v->Device, rb->VertexBufferMemory, 0, vertex_size, 0, (void**)&vtx_dst);
-        check_vk_result(err);
+        check_vk_result(err);if(err!=VK_SUCCESS){bd->UploadFailed=true;return;}
         err = vkMapMemory(v->Device, rb->IndexBufferMemory, 0, index_size, 0, (void**)&idx_dst);
-        check_vk_result(err);
+        check_vk_result(err);if(err!=VK_SUCCESS){vkUnmapMemory(v->Device,rb->VertexBufferMemory);bd->UploadFailed=true;return;}
         for (const ImDrawList* draw_list : draw_data->CmdLists)
         {
             memcpy(vtx_dst, draw_list->VtxBuffer.Data, draw_list->VtxBuffer.Size * sizeof(ImDrawVert));
@@ -618,6 +627,7 @@ void ImGui_ImplVulkan_RenderDrawData(ImDrawData* draw_data, VkCommandBuffer comm
         check_vk_result(err);
         vkUnmapMemory(v->Device, rb->VertexBufferMemory);
         vkUnmapMemory(v->Device, rb->IndexBufferMemory);
+        if(err!=VK_SUCCESS){bd->UploadFailed=true;return;}
     }
 
     // Setup render state structure (for callbacks and custom texture bindings)
@@ -711,10 +721,10 @@ static void ImGui_ImplVulkan_DestroyTexture(ImTextureData* tex)
         IM_ASSERT(backend_tex->DescriptorSet == (VkDescriptorSet)tex->TexID);
         ImGui_ImplVulkan_Data* bd = ImGui_ImplVulkan_GetBackendData();
         ImGui_ImplVulkan_InitInfo* v = &bd->VulkanInitInfo;
-        ImGui_ImplVulkan_RemoveTexture(backend_tex->DescriptorSet);
-        vkDestroyImageView(v->Device, backend_tex->ImageView, v->Allocator);
-        vkDestroyImage(v->Device, backend_tex->Image, v->Allocator);
-        vkFreeMemory(v->Device, backend_tex->Memory, v->Allocator);
+        if(backend_tex->DescriptorSet)ImGui_ImplVulkan_RemoveTexture(backend_tex->DescriptorSet);
+        if(backend_tex->ImageView)vkDestroyImageView(v->Device, backend_tex->ImageView, v->Allocator);
+        if(backend_tex->Image)vkDestroyImage(v->Device, backend_tex->Image, v->Allocator);
+        if(backend_tex->Memory)vkFreeMemory(v->Device, backend_tex->Memory, v->Allocator);
         IM_DELETE(backend_tex);
 
         // Clear identifiers and mark as destroyed (in order to allow e.g. calling InvalidateDeviceObjects while running)
@@ -730,7 +740,9 @@ void ImGui_ImplVulkan_UpdateTexture(ImTextureData* tex)
         return;
     ImGui_ImplVulkan_Data* bd = ImGui_ImplVulkan_GetBackendData();
     ImGui_ImplVulkan_InitInfo* v = &bd->VulkanInitInfo;
+    if(bd->UploadsClosed || bd->UploadFailed)return;
     VkResult err;
+    auto failed=[&](VkResult rc){check_vk_result(rc);if(rc==VK_SUCCESS)return false;bd->UploadFailed=true;return true;};
 
     if (tex->Status == ImTextureStatus_WantCreate)
     {
@@ -739,6 +751,7 @@ void ImGui_ImplVulkan_UpdateTexture(ImTextureData* tex)
         IM_ASSERT(tex->TexID == ImTextureID_Invalid && tex->BackendUserData == nullptr);
         IM_ASSERT(tex->Format == ImTextureFormat_RGBA32);
         ImGui_ImplVulkan_Texture* backend_tex = IM_NEW(ImGui_ImplVulkan_Texture)();
+        tex->BackendUserData=backend_tex; // Own every partial allocation immediately.
 
         // Create the Image:
         {
@@ -757,17 +770,18 @@ void ImGui_ImplVulkan_UpdateTexture(ImTextureData* tex)
             info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
             info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
             err = vkCreateImage(v->Device, &info, v->Allocator, &backend_tex->Image);
-            check_vk_result(err);
-            VkMemoryRequirements req;
+            if(failed(err))return;
+            VkMemoryRequirements req{};
             vkGetImageMemoryRequirements(v->Device, backend_tex->Image, &req);
             VkMemoryAllocateInfo alloc_info = {};
             alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
             alloc_info.allocationSize = IM_MAX(v->MinAllocationSize, req.size);
             alloc_info.memoryTypeIndex = ImGui_ImplVulkan_MemoryType(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, req.memoryTypeBits);
+            if(alloc_info.memoryTypeIndex==0xFFFFFFFF){failed(VK_ERROR_FEATURE_NOT_PRESENT);return;}
             err = vkAllocateMemory(v->Device, &alloc_info, v->Allocator, &backend_tex->Memory);
-            check_vk_result(err);
+            if(failed(err))return;
             err = vkBindImageMemory(v->Device, backend_tex->Image, backend_tex->Memory, 0);
-            check_vk_result(err);
+            if(failed(err))return;
         }
 
         // Create the Image View:
@@ -781,11 +795,13 @@ void ImGui_ImplVulkan_UpdateTexture(ImTextureData* tex)
             info.subresourceRange.levelCount = 1;
             info.subresourceRange.layerCount = 1;
             err = vkCreateImageView(v->Device, &info, v->Allocator, &backend_tex->ImageView);
-            check_vk_result(err);
+            if(failed(err))return;
         }
 
         // Create the Descriptor Set
         backend_tex->DescriptorSet = ImGui_ImplVulkan_AddTexture(backend_tex->ImageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+        if(!backend_tex->DescriptorSet){bd->UploadFailed=true;return;}
 
         // Store identifiers
         tex->SetTexID((ImTextureID)backend_tex->DescriptorSet);
@@ -805,9 +821,9 @@ void ImGui_ImplVulkan_UpdateTexture(ImTextureData* tex)
         const int upload_h = (tex->Status == ImTextureStatus_WantCreate) ? tex->Height : tex->UpdateRect.h;
 
         // Create the Upload Buffer:
-        VkDeviceMemory upload_buffer_memory;
+        VkDeviceMemory &upload_buffer_memory=bd->UploadMemory;
 
-        VkBuffer upload_buffer;
+        VkBuffer &upload_buffer=bd->UploadBuffer;
         VkDeviceSize upload_pitch = upload_w * tex->BytesPerPixel;
         VkDeviceSize upload_size = AlignBufferSize(upload_h * upload_pitch, bd->NonCoherentAtomSize);
         {
@@ -817,25 +833,26 @@ void ImGui_ImplVulkan_UpdateTexture(ImTextureData* tex)
             buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
             buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
             err = vkCreateBuffer(v->Device, &buffer_info, v->Allocator, &upload_buffer);
-            check_vk_result(err);
-            VkMemoryRequirements req;
+            if(failed(err))return;
+            VkMemoryRequirements req{};
             vkGetBufferMemoryRequirements(v->Device, upload_buffer, &req);
             bd->BufferMemoryAlignment = (bd->BufferMemoryAlignment > req.alignment) ? bd->BufferMemoryAlignment : req.alignment;
             VkMemoryAllocateInfo alloc_info = {};
             alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
             alloc_info.allocationSize = IM_MAX(v->MinAllocationSize, req.size);
             alloc_info.memoryTypeIndex = ImGui_ImplVulkan_MemoryType(VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, req.memoryTypeBits);
+            if(alloc_info.memoryTypeIndex==0xFFFFFFFF){failed(VK_ERROR_FEATURE_NOT_PRESENT);return;}
             err = vkAllocateMemory(v->Device, &alloc_info, v->Allocator, &upload_buffer_memory);
-            check_vk_result(err);
+            if(failed(err))return;
             err = vkBindBufferMemory(v->Device, upload_buffer, upload_buffer_memory, 0);
-            check_vk_result(err);
+            if(failed(err))return;
         }
 
         // Upload to Buffer:
         {
             char* map = nullptr;
             err = vkMapMemory(v->Device, upload_buffer_memory, 0, upload_size, 0, (void**)(&map));
-            check_vk_result(err);
+            if(failed(err))return;
             for (int y = 0; y < upload_h; y++)
                 memcpy(map + upload_pitch * y, tex->GetPixelsAt(upload_x, upload_y + y), (size_t)upload_pitch);
             VkMappedMemoryRange range[1] = {};
@@ -843,19 +860,19 @@ void ImGui_ImplVulkan_UpdateTexture(ImTextureData* tex)
             range[0].memory = upload_buffer_memory;
             range[0].size = upload_size;
             err = vkFlushMappedMemoryRanges(v->Device, 1, range);
-            check_vk_result(err);
             vkUnmapMemory(v->Device, upload_buffer_memory);
+            if(failed(err))return;
         }
 
         // Start command buffer
         {
             err = vkResetCommandPool(v->Device, bd->TexCommandPool, 0);
-            check_vk_result(err);
+            if(failed(err))return;
             VkCommandBufferBeginInfo begin_info = {};
             begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
             begin_info.flags |= VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
             err = vkBeginCommandBuffer(bd->TexCommandBuffer, &begin_info);
-            check_vk_result(err);
+            if(failed(err))return;
         }
 
         // Copy to Image:
@@ -915,15 +932,20 @@ void ImGui_ImplVulkan_UpdateTexture(ImTextureData* tex)
             end_info.commandBufferCount = 1;
             end_info.pCommandBuffers = &bd->TexCommandBuffer;
             err = vkEndCommandBuffer(bd->TexCommandBuffer);
-            check_vk_result(err);
-            err = vkQueueSubmit(v->Queue, 1, &end_info, VK_NULL_HANDLE);
-            check_vk_result(err);
+            if(failed(err))return;
+            VkFenceCreateInfo fi{};fi.sType=VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+            if(failed(vkCreateFence(v->Device,&fi,v->Allocator,&bd->UploadFence)))return;
+            bd->UploadPending=true;
+            err = vkQueueSubmit(v->Queue, 1, &end_info, bd->UploadFence);
+            if(failed(err))return;
         }
 
-        err = vkQueueWaitIdle(v->Queue); // FIXME-OPT: Suboptimal!
-        check_vk_result(err);
-        vkDestroyBuffer(v->Device, upload_buffer, v->Allocator);
-        vkFreeMemory(v->Device, upload_buffer_memory, v->Allocator);
+        err = vkWaitForFences(v->Device,1,&bd->UploadFence,VK_TRUE,5000000000ULL);
+        if(failed(err))return;
+        bd->UploadPending=false;
+        vkDestroyFence(v->Device,bd->UploadFence,v->Allocator);bd->UploadFence=VK_NULL_HANDLE;
+        vkDestroyBuffer(v->Device, upload_buffer, v->Allocator);upload_buffer=VK_NULL_HANDLE;
+        vkFreeMemory(v->Device, upload_buffer_memory, v->Allocator);upload_buffer_memory=VK_NULL_HANDLE;
 
         tex->SetStatus(ImTextureStatus_OK);
     }
@@ -1286,6 +1308,9 @@ void    ImGui_ImplVulkan_DestroyDeviceObjects()
     ImGui_ImplVulkan_InitInfo* v = &bd->VulkanInitInfo;
     ImGui_ImplVulkan_DestroyWindowRenderBuffers(v->Device, &bd->MainWindowRenderBuffers, v->Allocator);
 
+    if(bd->UploadFence){vkDestroyFence(v->Device,bd->UploadFence,v->Allocator);bd->UploadFence=VK_NULL_HANDLE;}
+    if(bd->UploadBuffer){vkDestroyBuffer(v->Device,bd->UploadBuffer,v->Allocator);bd->UploadBuffer=VK_NULL_HANDLE;}
+    if(bd->UploadMemory){vkFreeMemory(v->Device,bd->UploadMemory,v->Allocator);bd->UploadMemory=VK_NULL_HANDLE;}
     // Destroy all textures
     for (ImTextureData* tex : ImGui::GetPlatformIO().Textures)
         if (tex->RefCount == 1)
@@ -1429,6 +1454,9 @@ bool    ImGui_ImplVulkan_Init(ImGui_ImplVulkan_InitInfo* info)
 
     return true;
 }
+
+bool ImGui_ImplVulkan_HasPendingUpload(){auto *bd=ImGui_ImplVulkan_GetBackendData();return bd&&bd->UploadPending;}
+void ImGui_ImplVulkan_StopUploads(){auto *bd=ImGui_ImplVulkan_GetBackendData();if(bd)bd->UploadsClosed=true;}
 
 void ImGui_ImplVulkan_Shutdown()
 {

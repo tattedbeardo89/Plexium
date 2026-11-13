@@ -62,7 +62,7 @@ void plat_notify(const char *message);
 /* After the first frames are on screen: the system's launch image goes. */
 void plat_hide_splash(void);
 /* Leave the app (the console's shell takes over). */
-void plat_quit(void);
+void plat_quit(int status);
 /* Start the app again (a fresh process sees the drives mounted since). */
 void plat_restart(void);
 /* Seconds, monotonic. */
@@ -89,6 +89,7 @@ bool plat_create_surface(VkInstance instance, VkPhysicalDevice gpu, VkSurfaceKHR
 #define AUDIO_RATE 48000
 #define AUDIO_GRAIN 256
 bool plat_audio_open(void);
+bool plat_audio_close(void);
 void plat_audio_output(const int16_t *frames);
 /* Surround: a second port, 8 channels in the console's order (L, R, C, LFE,
  * surround L, surround R, back L, back R), opened on first use. False if the

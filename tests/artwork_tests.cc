@@ -50,6 +50,7 @@ int main(){
  std::atomic<bool> entered{false},finish{false};
  plex::Artwork closing([&](const plex::Request&){entered=true;until([&]{return finish.load();});return plex::Reply{200,"",""};});
  closing.get("https://fixture","profile","/pending");until([&]{return entered.load();});
+ TEST_REQUIRE(!closing.close(std::chrono::milliseconds(0)) && closing.busy());
  auto release_thread=std::thread([&]{finish=true;});closing.close();release_thread.join();
  TEST_REQUIRE(!closing.busy() && uploads==1 && frees==1);
  puts("PASS: production artwork three-lane bound, async fetch/decode, stale-profile discard, render-thread upload and retirement");

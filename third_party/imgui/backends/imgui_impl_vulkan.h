@@ -277,3 +277,8 @@ struct ImGui_ImplVulkanH_Window
 #endif
 
 #endif // #ifndef IMGUI_DISABLE
+
+// Plexium: render-thread shutdown gate. Does not destroy or cancel GPU work.
+IMGUI_IMPL_API void ImGui_ImplVulkan_StopUploads();
+
+IMGUI_IMPL_API bool ImGui_ImplVulkan_HasPendingUpload();

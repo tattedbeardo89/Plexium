@@ -8,6 +8,7 @@
 #include "plex/diagnostics.h"
 #include "library.h"
 #include "runtime/render_queue.h"
+#include "runtime/shutdown.h"
 #include "backends/imgui_impl_vulkan.h"
 #include <memory>
 #include <future>
@@ -20,6 +21,7 @@ namespace plex {Transport ps5_transport();}
 static_assert(std::atomic<unsigned>::is_always_lock_free, "Crash checkpoints require lock-free reads");
 extern "C" unsigned plex_home_last_checkpoint(){return plex::home_last.load(std::memory_order_relaxed);}
 namespace {
+bool application_workers_retained=false;
 #if !PLEX_STARTUP_ONLY
 class NativePlayer final:public plexium::PlaybackPort {
  plexium::RenderQueue queue;
@@ -48,31 +50,65 @@ struct Application {
  plexium::Model model;
  plexium::MediaContext access;
  std::string art_scope;
- ~Application(){player.close();runtime.close();artwork.close();}
+ plexium::Shutdown worker_shutdown{16};
+ bool close(){
+  using Status=plexium::ShutdownStatus;
+  worker_shutdown.step(0,"ui-callbacks",true,[&]{view.image={};view.aspect={};view.avatar={};return Status::Completed;});
+  worker_shutdown.step(1,"reject-render-uploads",true,[&]{textures_stop_uploads();ImGui_ImplVulkan_StopUploads();player.close();player_request_shutdown();return Status::Completed;});
+  worker_shutdown.step(2,"session-cancel-join",true,[&]{return runtime.close()?Status::Completed:Status::TimedOut;});
+  worker_shutdown.step(3,"artwork-cancel-join",true,[&]{return artwork.close()?Status::Completed:Status::TimedOut;});
+  return worker_shutdown.successful();
+ }
+ ~Application(){close();}
 };
+struct ApplicationDeleter {
+ void operator()(Application *app)const{
+  if(app->close())delete app;
+  else{application_workers_retained=true;std::fprintf(stderr,"shutdown: application worker ownership retained until process exit\n");}
+ }
+};
+using ApplicationPtr=std::unique_ptr<Application,ApplicationDeleter>;
 unsigned buttons(uint32_t p){using namespace plexium;unsigned out=0;const uint32_t raw[]={PAD_UP,PAD_DOWN,PAD_LEFT,PAD_RIGHT,PAD_CROSS,PAD_CIRCLE,PAD_L1,PAD_R1,PAD_OPTIONS,PAD_TRIANGLE};for(unsigned i=0;i<10;++i)if(p&raw[i])out|=1u<<i;return out;}
 #endif
 }
-static void startup(const char *phase){std::fprintf(stderr,"Plexium startup: %s\n",phase);std::fflush(stderr);}
+static std::atomic<unsigned> native_startup_phase{0};
+extern "C" unsigned plex_native_startup_phase(){return native_startup_phase.load(std::memory_order_relaxed);}
+extern "C" unsigned plex_native_shutdown_phase(){return plexium::last_shutdown_phase.load(std::memory_order_relaxed);}
+static void startup(const char *phase){++native_startup_phase;std::fprintf(stderr,"Plexium startup: %s\n",phase);std::fflush(stderr);}
 namespace {
 VkResult ui_first_error=VK_SUCCESS;
+#ifndef PLEX_SOURCE_DATE
+#define PLEX_SOURCE_DATE "not-stamped"
+#endif
+
 void ui_result(VkResult result){if(result!=VK_SUCCESS && ui_first_error==VK_SUCCESS){ui_first_error=result;std::fprintf(stderr,"Plexium UI: first Vulkan error=%d\n",int(result));}}
 // GPU completion must be established before destroying descriptors. A failed
 // frame leaves uncertain driver allocations to process teardown.
 struct NativeLifetime {
  bool graphics=false,context=false,backend=false,player=false,gpu_failed=false,finished=false;
+ plexium::Shutdown coordinator;
  bool shutdown(){
+  using Status=plexium::ShutdownStatus;
   if(finished)return !gpu_failed;finished=true;
-  if(player){startup("stopping player");player_shutdown();}
-  if(!gpu_failed && graphics && !gfx_shutdown())gpu_failed=true;
-  if(!gpu_failed && backend){textures_shutdown();ImGui_ImplVulkan_Shutdown();}
-  if(!gpu_failed && graphics && !player)gfx_destroy();
-  if(!gpu_failed && player)startup("full-client video allocations retained until process exit");
-  if(gpu_failed)startup("graphics failure: retaining uncertain GPU allocations and backend context until exit");
-  // ImGui asserts if its renderer backend is still attached. Do not invoke
-  // backend destruction after uncertain GPU completion just to clear that flag.
-  if(context && !(gpu_failed&&backend))ImGui::DestroyContext();
-  startup("shutdown complete");return !gpu_failed;
+  if(application_workers_retained)gpu_failed=true;
+  coordinator.step(0,"reject-uploads",true,[&]{textures_stop_uploads();if(backend)ImGui_ImplVulkan_StopUploads();return Status::Completed;});
+  auto media=coordinator.step(1,"media-callbacks-audio",player&&!application_workers_retained,[&]{return player_shutdown()?Status::Completed:player_shutdown_timed_out()?Status::TimedOut:Status::Failed;});
+  if(media==Status::Failed||media==Status::TimedOut)gpu_failed=true;
+  auto queue=coordinator.step(2,"gpu-fence-drain",!gpu_failed&&graphics,[&]{return gfx_shutdown()?Status::Completed:gfx_last_result()==VK_TIMEOUT?Status::TimedOut:Status::Failed;});
+  if(queue==Status::Failed||queue==Status::TimedOut)gpu_failed=true;
+  auto video=coordinator.step(3,"video-objects",!gpu_failed&&player,[&]{return video_shutdown()?Status::Completed:Status::Failed;});
+  if(video==Status::Failed)gpu_failed=true;
+  auto ui=coordinator.step(4,"textures-and-font",!gpu_failed&&backend,[&]{
+   if(!textures_shutdown())return Status::Failed;
+   ImGui_ImplVulkan_Shutdown();backend=false;return Status::Completed;
+  });
+  if(ui==Status::Failed)gpu_failed=true;
+  auto renderer=coordinator.step(5,"renderer-and-wsi",!gpu_failed&&graphics,[&]{return gfx_destroy()?Status::Completed:Status::Failed;});
+  if(renderer==Status::Failed)gpu_failed=true;
+  coordinator.step(6,"ui-context",context&&!backend,[&]{ImGui::DestroyContext();context=false;return Status::Completed;});
+  if(gpu_failed)startup("shutdown incomplete: retained resources; hardware hold remains");
+  else startup("shutdown complete");
+  return !gpu_failed&&coordinator.successful();
  }
  int finish(int result){bool clean=shutdown();return result?result:(clean?0:4);}
  ~NativeLifetime(){shutdown();}
@@ -84,7 +120,8 @@ bool exit_requested(const PadState &pad,double now,double &since){
 }
 }
 __attribute__((noinline)) static int run_native(){
- ui_first_error=VK_SUCCESS;
+ ui_first_error=VK_SUCCESS;application_workers_retained=false;native_startup_phase=0;plexium::last_shutdown_phase=0;
+ std::fprintf(stderr,"lifecycle: build=%s source-date=%s mode=%s\n",PLEX_BUILD_COMMIT,PLEX_SOURCE_DATE,PLEX_STARTUP_ONLY?"stage1":"full-client");
  NativeLifetime lifetime;
  plat_init();startup("platform ready");lifetime.graphics=true;
  if(!gfx_init())return lifetime.finish(1);startup("graphics ready");
@@ -95,6 +132,7 @@ __attribute__((noinline)) static int run_native(){
  init.CheckVkResultFn=ui_result;
  if(!ImGui_ImplVulkan_Init(&init))return lifetime.finish(2);
  lifetime.backend=true;
+ if(!textures_begin_context()){lifetime.gpu_failed=true;return lifetime.finish(2);}
  startup("UI ready");
 #if PLEX_STARTUP_ONLY
  startup("stage 1: renderer/controller only");
@@ -114,13 +152,14 @@ __attribute__((noinline)) static int run_native(){
   ImGui::End();ImGui::Render();
   auto cmd=gfx_begin_frame();if(!cmd){lifetime.gpu_failed=true;return lifetime.finish(4);}
   gfx_begin_pass(cmd);ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(),cmd);
+  if(ui_first_error!=VK_SUCCESS || !gfx_healthy()){lifetime.gpu_failed=ImGui_ImplVulkan_HasPendingUpload()||!gfx_healthy();return lifetime.finish(4);}
   if(!gfx_end_frame(cmd)){lifetime.gpu_failed=true;return lifetime.finish(4);}
   if(gfx.frame_number==3)plat_hide_splash();
  }
  return lifetime.finish(0);
 #else
  lifetime.player=true;if(!player_init())return lifetime.finish(3);startup("player ready");
- auto application=std::make_unique<Application>();
+ ApplicationPtr application(new Application);
  auto &player=application->player;auto &view=application->view;auto &artwork=application->artwork;
  auto &runtime=application->runtime;auto &model=application->model;auto &access=application->access;auto &art_scope=application->art_scope;
  if(!runtime.ready()){std::fprintf(stderr,"Plexium startup: session worker failed (%d)\n",runtime.start_error());application.reset();return lifetime.finish(5);}
@@ -128,6 +167,7 @@ __attribute__((noinline)) static int run_native(){
  double last=plat_time(),poll=last,timeline=last,exit_since=last;uint32_t previous=0;
  for(;;){
   player.pump();
+  if(player_decoder_cleanup_failed()){lifetime.gpu_failed=true;application.reset();return lifetime.finish(4);}
   player_tick(); // Retain VLC stop/queued-open, subtitle and decoder health servicing.
   double now=plat_time();float dt=std::clamp(float(now-last),.001f,.1f);last=now;PadState pad{};plat_pad_read(&pad);
   if(exit_requested(pad,now,exit_since))break;
@@ -136,6 +176,7 @@ __attribute__((noinline)) static int run_native(){
   if(model.screen==plexium::Screen::Playback){model.paused=player_paused();model.buffering=player_buffering();}
   if(art_scope!=access.scope){artwork.clear();art_scope=access.scope;artwork.set_scope(std::string(plexium::data_path)+"/art",access.scope);artwork.set_avatar_scope(std::string(plexium::data_path)+"/avatars",access.account_token);}
   artwork.update();
+  if(!gfx_healthy()){lifetime.gpu_failed=true;application.reset();return lifetime.finish(4);}
   view.image=[&](const plex::Item &item,bool landscape){return artwork.media(access.base,access.token,item,landscape);};
   view.aspect=[&](ImTextureID texture){return artwork.aspect(texture);};
   view.avatar=[&](const std::string &url){return artwork.avatar(url,access.account_token);};plat_pad_set_private(view.sensitive(model));
@@ -145,14 +186,18 @@ __attribute__((noinline)) static int run_native(){
   ImGui_ImplVulkan_NewFrame();io.DisplaySize={float(gfx.width),float(gfx.height)};io.DeltaTime=dt;ImGui::NewFrame();
   auto action=view.frame(model,pressed,dt);if(action){if(action->action==plexium::Action::Stop){action->text=std::to_string(player_time());player_stop();}runtime.send(*action);}ImGui::Render();
   auto cmd=gfx_begin_frame();if(!cmd){lifetime.gpu_failed=true;application.reset();return lifetime.finish(4);}
-  video_upload(cmd);bool playing=model.screen==plexium::Screen::Playback&&model.detail.type!="track";
-  video_prepare(cmd,playing?float(gfx.width):0,playing?float(gfx.height):0);gfx_begin_pass(cmd);
+  video_upload(cmd);if(!gfx_healthy()){lifetime.gpu_failed=true;application.reset();return lifetime.finish(4);}
+  bool playing=model.screen==plexium::Screen::Playback&&model.detail.type!="track";
+  video_prepare(cmd,playing?float(gfx.width):0,playing?float(gfx.height):0);
+  if(!gfx_healthy()){lifetime.gpu_failed=true;application.reset();return lifetime.finish(4);}
+  gfx_begin_pass(cmd);
   if(playing){float aspect=video_picture_aspect();float w=float(gfx.width),h=aspect>0?w/aspect:float(gfx.height);if(h>gfx.height){h=float(gfx.height);w=h*aspect;}video_draw(cmd,(gfx.width-w)/2,(gfx.height-h)/2,w,h);}
-  ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(),cmd);if(!gfx_end_frame(cmd)){lifetime.gpu_failed=true;application.reset();return lifetime.finish(4);}
+  ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(),cmd);
+  if(ui_first_error!=VK_SUCCESS || !gfx_healthy()){lifetime.gpu_failed=ImGui_ImplVulkan_HasPendingUpload()||!gfx_healthy();application.reset();return lifetime.finish(4);}if(!gfx_end_frame(cmd)){lifetime.gpu_failed=true;application.reset();return lifetime.finish(4);}
   if(gfx.frame_number==3)plat_hide_splash();
  }
  application.reset();return lifetime.finish(0);
 #endif
 }
 
-int main(){int result=run_native();std::fprintf(stderr,"Plexium exit: status=%d\n",result);plat_quit();return result;}
+int main(){int result=run_native();std::fprintf(stderr,"Plexium exit: status=%d\n",result);plat_quit(result);return result;}

@@ -40,7 +40,10 @@ bool gfx_init();
 bool gfx_shutdown();
 // Only after successful gfx_shutdown and client/backend destruction. Idempotent
 // and safe for partially initialized state; never call after uncertain GPU work.
-void gfx_destroy();
+bool gfx_destroy(bool presentation_complete=false);
+bool gfx_wait_queue();
+bool gfx_healthy();
+VkResult gfx_last_result();
 /* Waits for this slot's previous frame, acquires an image, begins the command
  * buffer (outside the render pass: record uploads first). Null if the frame
  * must be skipped. */
