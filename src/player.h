@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #pragma once
+#include "plex/tracks.h"
 
 #include <stdint.h>
 #include <string>
@@ -218,3 +219,6 @@ void player_set_hw_decoding(bool on);
 /* Main thread, every frame while playing: watches for lost pictures. */
 enum PlayerEvent { PLAYER_EVENT_NONE, PLAYER_EVENT_WENT_FAST, PLAYER_EVENT_TOO_SLOW };
 PlayerEvent player_tick();
+
+std::vector<plex::NativeTrack> player_track_descriptors(bool subtitle);
+bool player_select_native_track(bool subtitle,int id);

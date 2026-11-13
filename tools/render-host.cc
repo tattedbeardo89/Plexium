@@ -61,6 +61,12 @@ int main(int argc,char **argv){
  guide_model.guide.begins=1794484800;guide_model.guide.ends=1794492000;guide_model.guide.total=8;guide_model.guide.configured=true;
  for(int i=0;i<6;++i){plex::GuideChannel channel;channel.id=std::to_string(i);channel.number=std::to_string(i+1);channel.title="Fixture channel";channel.programs={{"Fixture current program","Episode title","Plex-supplied fixture description",1794483900,1794488400},{"Fixture upcoming program","","",1794488400,1794492000}};guide_model.guide.channels.push_back(channel);}
  frame("guide",guide_model);
+ Model tracks=m;tracks.screen=Screen::Tracks;tracks.detail=item;
+ tracks.audio_tracks={{"10","eng","","aac","English · AAC · Stereo","",2,false,true},{"11","spa","","aac","Spanish · AAC · Stereo","",2,false,false}};
+ tracks.subtitle_tracks={{"20","eng","","srt","English · SRT · Embedded","",0,true,false}};tracks.tracks.audio="10";frame("tracks",tracks);
+ Model settings=m;settings.screen=Screen::Settings;frame("settings",settings);
+ Model next=m;next.screen=Screen::Details;next.detail=item;next.upcoming={item};next.autoplay_remaining=8;frame("next-episode",next);
+ View track_controls;ImGui::NewFrame();auto track_action=track_controls.frame(tracks,Cross,.016f);ImGui::Render();TEST_REQUIRE(track_action&&track_action->action==Action::SelectAudio&&track_action->id=="10");
  View guide_view;
  auto guide_input=[&](unsigned keys){ImGui::NewFrame();auto action=guide_view.frame(guide_model,keys,.016f);ImGui::Render();return action;};
  TEST_REQUIRE(guide_input(Cross)->action==Action::TuneChannel);
@@ -95,6 +101,6 @@ int main(int argc,char **argv){
  rich_frame(0);TEST_REQUIRE(posters&&backgrounds);rich_frame(Right);rich_frame(Right);rich_frame(Cross);TEST_REQUIRE(cast_images>=2);
  std::cout<<"PASS: video controls auto-hide/wake/pause, native avatar callback, detail poster/backdrop and multiple cast portraits\n";
  auto begin=std::chrono::steady_clock::now();for(int i=0;i<100;++i){ImGui::NewFrame();view.frame(m,0,1.f/60);ImGui::Render();}
- std::cout<<"PASS: 7 shared-native rendered frames; Cross activates sign-in; 100 frame construction iterations in "<<std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-begin).count()<<" ms (host only)\n";
+ std::cout<<"PASS: expanded shared-native rendered frames; Cross activates sign-in; 100 frame construction iterations in "<<std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-begin).count()<<" ms (host only)\n";
  ImGui::DestroyContext();
 }

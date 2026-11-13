@@ -69,3 +69,11 @@ The user reports 0.2 launch failure, reboot, safe mode and system-software recov
 Final offline startup correction: native source `09671e31df3e99a5257a58faf7e8fc32b7917ac7` passed full compile/link/sign/package, exact source/debug stamp, ZIP payload/CRC/modes and stack-budget checks. Immediate entry/UI reservations measured 2616 bytes (0.1: 5224), worker/dispatch 1952 (0.1: 2272), and entry/send 2200 (0.1: 4696). These exclude callee frames and saved registers. See [native comparison](NATIVE-COMPARISON.md). No device execution or safe-launch claim; reboot attribution remains unresolved and hardware hold remains.
 
 The final successful-worker regression fixture and full host suites passed normally and with ASan/UBSan after this correction, including independent reusable model/context snapshots and retained vector capacity. These are local results; no fresh remote CI completion is claimed.
+
+The next full-client milestone adds `track-selection-tests`, `progress-journal-tests`,
+`durable-progress-tests` and `episode-continuation-tests` to normal and sanitizer
+runs and to NDEBUG validation. `host/test-vlc-integration.sh` also generates a
+multi-audio MKV with an embedded SRT plus an external SRT and verifies actual
+VLC track changes through the production Session. Renderer validation now checks
+twelve distinct 1280x720 frames, including tracks, preferences and next episode.
+These fixtures do not verify a real PMS/DVR or physical PS5.

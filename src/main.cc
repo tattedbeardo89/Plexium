@@ -25,20 +25,25 @@ bool application_workers_retained=false;
 #if !PLEX_STARTUP_ONLY
 class NativePlayer final:public plexium::PlaybackPort {
  plexium::RenderQueue queue;
+ std::string preferred_audio_language;
  public:
  void pump(){queue.pump();}
  void close(){queue.close();}
  private:
  int64_t invoke(std::function<int64_t()> fn)const{return queue.invoke(std::move(fn));}
  public:
- bool open(const std::string&url,int64_t offset)override {return invoke([url,offset]{bool opened=player_open(url,offset);if(opened)player_subtitles_off();return int64_t(opened);})==1;}
+ void prepare_audio(const plex::MediaTrack *track)override{preferred_audio_language=track?track->language:"";}
+ bool open(const std::string&url,int64_t offset)override {return invoke([url,offset,language=preferred_audio_language]{std::vector<std::string> options;if(!language.empty())options.push_back(":audio-language="+language);bool opened=player_open(url,offset,options);if(opened)player_subtitles_off();return int64_t(opened);})==1;}
  void stop()override {invoke([]{player_stop();return int64_t(0);});}
  int64_t position()const override{return std::max<int64_t>(0,invoke([]{return player_time();}));}
  bool paused()const override{return invoke([]{return int64_t(player_paused());})==1;}
  void pause()override{invoke([]{player_toggle_pause();return int64_t(0);});}
  void seek(int64_t ms)override{invoke([ms]{player_seek(ms);return int64_t(0);});}
- plexium::PlaybackObservation observe()const override {plexium::PlaybackObservation o;invoke([&o]{o={true,player_active()&&!player_buffering()&&!player_paused()&&!player_ended(),player_buffering(),player_paused(),player_ended(),player_failed()};return int64_t(0);});return o;}
+ plexium::PlaybackObservation observe()const override {auto o=std::make_shared<plexium::PlaybackObservation>();invoke([o]{*o={true,player_active()&&!player_buffering()&&!player_paused()&&!player_ended(),player_buffering(),player_paused(),player_ended(),player_failed()};return int64_t(0);});return *o;}
  void audio_next()override{invoke([]{auto list=player_audio_tracks();if(list.empty())return int64_t(0);auto found=std::find_if(list.begin(),list.end(),[](const auto&t){return t.id==player_audio_track();});size_t n=found==list.end()?0:(found-list.begin()+1)%list.size();player_set_audio_track(list[n].id);return int64_t(0);});}
+ std::vector<plex::NativeTrack> native_tracks(bool subtitle)const override{auto result=std::make_shared<std::vector<plex::NativeTrack>>();invoke([result,subtitle]{*result=player_track_descriptors(subtitle);return int64_t(0);});return *result;}
+ bool select_native_track(bool subtitle,int id)override{return invoke([subtitle,id]{return int64_t(player_select_native_track(subtitle,id));})==1;}
+ bool add_external_subtitle(const std::string &url)override{return invoke([url]{return int64_t(player_add_subtitle(url,false));})==1;}
  void subtitle_next()override{invoke([]{auto list=player_subtitle_tracks();if(list.empty())return int64_t(0);auto found=std::find_if(list.begin(),list.end(),[](const auto&t){return t.id==player_subtitle_track();});size_t n=found==list.end()?0:(found-list.begin()+1)%list.size();if(list[n].id<0)player_subtitles_off();else player_set_subtitle_track(list[n].id);return int64_t(0);});}
 };
 // Keep growing application models off the native entry thread's stack. Member
@@ -184,7 +189,7 @@ __attribute__((noinline)) static int run_native(){
   view.aspect=[&](ImTextureID texture){return artwork.aspect(texture);};
   view.avatar=[&](const std::string &url){return artwork.avatar(url,access.account_token);};plat_pad_set_private(view.sensitive(model));
   if(model.screen==plexium::Screen::Linking&&now>=poll&&!model.busy){runtime.send({plexium::Action::Poll,{},{}});poll=now+2;}
-  if(now>=timeline&&!model.busy){runtime.send({plexium::Action::Tick,{},{}});timeline=now+((model.playback_state==plexium::PlaybackState::Opening||model.playback_state==plexium::PlaybackState::Buffering)?1:10);}
+  if(now>=timeline&&!model.busy){runtime.send({plexium::Action::Tick,{},{}});timeline=now+((model.autoplay_remaining>0||model.playback_state==plexium::PlaybackState::Opening||model.playback_state==plexium::PlaybackState::Buffering)?1:10);}
   if(model.screen==plexium::Screen::Playback&&player_ended()&&!model.busy)runtime.send({plexium::Action::Stop,"ended",{}});
   ImGui_ImplVulkan_NewFrame();io.DisplaySize={float(gfx.width),float(gfx.height)};io.DeltaTime=dt;ImGui::NewFrame();
   auto action=view.frame(model,pressed,dt);if(action){if(action->action==plexium::Action::Stop){action->text=std::to_string(player_time());player_stop();}runtime.send(*action);}ImGui::Render();

@@ -2,13 +2,18 @@
 #pragma once
 #include "listening.h"
 namespace plex {
-struct ProgressUpdate {Item item;std::string state;int64_t position=0,updated=0,sequence=0;int attempts=0;double due=0;};
+struct ProgressUpdate {Item item;std::string state;int64_t position=0,updated=0,sequence=0;int attempts=0;double due=0;std::string session;int64_t baseline=0,baseline_viewed=0;bool recovered=false,blocked=false;};
 struct ProgressOutbox {
     std::vector<ProgressUpdate> entries;int64_t serial=0;
-    int64_t put(const Item &item,const std::string &state,int64_t position,int64_t updated) {
+    int64_t put(const Item &item,const std::string &state,int64_t position,int64_t updated,const std::string &session="") {
         auto found=std::find_if(entries.begin(),entries.end(),[&](const ProgressUpdate &u){return u.item.id==item.id;});
         if(found==entries.end()){if(entries.size()>=128)return 0;entries.emplace_back();found=entries.end()-1;}
-        *found={item,state,std::max<int64_t>(0,position),updated,++serial,0,0};found->item.media={};return serial;
+        const bool blocked=found->session==session&&found->blocked;
+        const auto attempts=found->session==session?found->attempts:0;const auto due=found->session==session?found->due:0;
+        const auto baseline=found->session==session&&!found->session.empty()?found->baseline:item.offset;
+        const auto viewed=found->session==session&&!found->session.empty()?found->baseline_viewed:item.last_played;
+        found->item=item;found->state=state;found->position=std::max<int64_t>(0,position);found->updated=updated;found->sequence=++serial;found->attempts=attempts;found->due=due;
+        found->session=session;found->baseline=baseline;found->baseline_viewed=viewed;found->recovered=false;found->blocked=blocked;found->item.media={};return serial;
     }
     void ack(const std::string &id,int64_t sequence) {
         entries.erase(std::remove_if(entries.begin(),entries.end(),[&](const ProgressUpdate &u){return u.item.id==id && u.sequence==sequence;}),entries.end());

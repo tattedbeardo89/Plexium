@@ -82,7 +82,8 @@ __attribute__((noinline)) std::optional<Command> View::details_frame(const Model
   for(int i=0;i<4;++i)c.button(680+i*270,565,250,labels[i],row==0&&column==i);
   if(!container&&m.detail.media.is_array()&&!m.detail.media.empty()){
    c.text(680,625,"Version "+std::to_string(m.media_version+1)+" / "+std::to_string(m.detail.media.is_array()?m.detail.media.size():0)+" · "+plex::quality_name(m.quality),22,c.muted);
-   c.text(680,655,"L1: media version    R1: quality (up to 1080p)",20,c.muted);
+   c.text(680,655,"L1: version   R1: quality   Options: audio / subtitles",20,c.muted);
+   if(keys&Options)return command(Action::Tracks);
    if(keys&L1)return command(Action::Version);if(keys&R1)return command(Action::Quality);
   }
   if(row==0&&(keys&Cross)){if(column==0)return command(container?Action::Children:Action::Play,m.detail.id);detail_panel=column;row=1;column=0;detail_scroll=0;}
@@ -180,7 +181,7 @@ std::optional<Command> View::frame(const Model&m,unsigned keys,float dt){
  if(m.screen==Screen::Library){auto identity=m.library_id+":"+m.library_tab+":"+m.library_path+":"+std::to_string(m.page_start);if(identity!=listing_focus){listing_focus=identity;row=m.library_id.empty()?0:-1;column=0;auto tabs=library_tabs(m.library_type,m.books);for(size_t i=0;i<tabs.size();++i)if(tabs[i].first==m.library_tab)column=int(i);}}
  if(m.busy&&m.screen!=Screen::Playback){c.text(1550,80,"Loading…",25,c.muted);keys&=Circle;}
  if(!m.message.empty()){float message_y=m.screen==Screen::Guide?945:850;c.box(420,message_y,1400,62,IM_COL32(60,32,48,255));c.wrap(447,message_y+10,m.message,1320,24);}
- if(keys&Circle){if(m.screen==Screen::Playback)return command(Action::Stop);if(m.screen==Screen::Linking)return command(Action::Cancel);return command(Action::Back);}
+ if(keys&Circle){if(m.autoplay_remaining>0)return command(Action::CancelNext);if(m.screen==Screen::Playback)return command(Action::Stop);if(m.screen==Screen::Linking)return command(Action::Cancel);return command(Action::Back);}
  switch(m.screen){
  case Screen::Welcome:
   c.text(180,326,"Your library. A bigger stage.",66);c.wrap(183,435,"A cinematic Plex experience for PlayStation 5.\nLink your own Plex account to get started.",1000,31);
@@ -217,9 +218,29 @@ std::optional<Command> View::frame(const Model&m,unsigned keys,float dt){
   c.text(420,235,"Settings & About",55);c.text(425,340,"Plexium · "+std::string(title_id),30);
   c.text(425,800,"Unofficial Plex client; not affiliated with or endorsed by Plex",22,c.muted);
   c.wrap(425,415,"Choose version and quality on title details · verified HTTPS · subtitles off by default.\nThis development checkpoint requires physical PS5 acceptance.",1160,28);
-  c.button(425,650,350,"Sign out",true);if(keys&Cross)return command(Action::SignOut);break;
+  if(keys&Down)column=1;if(keys&Up)column=0;column=std::clamp(column,0,1);
+  c.button(425,570,650,std::string("Auto-play next episode: ")+(m.autoplay?"On":"Off"),column==0);
+  c.button(425,650,350,"Sign out",column==1);if(keys&Cross)return command(column==0?Action::AutoPlay:Action::SignOut);break;
  case Screen::Guide:return guide_frame(m,keys,c);
- case Screen::Details:return details_frame(m,keys,c);
+ case Screen::Tracks:{
+  c.text(100,180,"Audio & Subtitles",48);c.text(105,245,plex::utf8_prefix(m.detail.title,95),27,c.muted);
+  int count=int(m.audio_tracks.size()+m.subtitle_tracks.size()+1);if(keys&Down)++column;if(keys&Up)--column;column=std::clamp(column,0,std::max(0,count-1));int first=std::max(0,column-6);
+  for(int i=first;i<std::min(count,first+8);++i){
+   std::string label,id;bool subtitle=i>=int(m.audio_tracks.size()),selected=false;
+   if(i<int(m.audio_tracks.size())){const auto &track=m.audio_tracks[i];label="Audio: "+track.label;id=track.id;selected=m.tracks.audio==id;}
+   else if(i==int(m.audio_tracks.size())){label="Subtitles: Off";id="off";selected=m.tracks.subtitle.empty();}
+   else{const auto &track=m.subtitle_tracks[i-int(m.audio_tracks.size())-1];label="Subtitles: "+track.label;id=track.id;selected=m.tracks.subtitle==id;}
+   c.button(105,320+(i-first)*70,1680,(selected?"[Selected]  ":"")+label,column==i);
+   if((keys&Cross)&&column==i)return command(subtitle?Action::SelectSubtitle:Action::SelectAudio,id);
+  }
+  c.text(105,1015,"D-pad  Select track     Cross  Apply     Circle  Return",24,c.muted);break;
+ }
+ case Screen::Details:
+  if(!m.upcoming.empty()){
+   c.box(680,945,1120,80,IM_COL32(42,40,67,255));c.text(700,955,"Next: "+plex::utf8_prefix(m.upcoming.front().title,55)+(m.autoplay_remaining>0?" · "+std::to_string(m.autoplay_remaining)+"s":""),27);
+   c.text(700,996,"Triangle  Play next     Circle  Cancel countdown",21,c.muted);if(keys&Triangle)return command(Action::PlayNext);
+  }
+  return details_frame(m,keys,c);
  case Screen::Playback:{
   if(m.detail.type=="track"){
    c.box(0,0,1920,1080,IM_COL32(10,11,18,255),0);c.brand();
@@ -236,6 +257,7 @@ std::optional<Command> View::frame(const Model&m,unsigned keys,float dt){
    c.text(95,945,std::to_string(m.detail.offset/1000)+" / "+std::to_string(m.detail.duration/1000)+" seconds",23);
    if(m.buffering)c.text(1490,945,"Buffering…",24,c.muted);
   }
+  for(const auto &marker:m.detail.markers)if(m.detail.offset>=marker.begins&&m.detail.offset<marker.ends){c.text(1200,990,"Triangle  Skip "+marker.type,24,c.accent);if(keys&Triangle)return command(Action::SkipMarker);break;}
   if(keys&Cross)return command(Action::Pause);if(keys&Left)return command(Action::Seek,"back");if(keys&Right)return command(Action::Seek,"forward");if(keys&L1)return command(Action::Audio);if(keys&R1)return command(Action::Subtitle);break;}
  case Screen::Home:
  case Screen::Library:{

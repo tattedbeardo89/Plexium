@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include "app/session.h"
+#include "vlc_tracks.h"
 #include <vlc/vlc.h>
 #include <fontconfig/fontconfig.h>
 #include <omp.h>
@@ -12,6 +13,7 @@ namespace plexium {
 // audio is counted, not sent to host hardware. No PS5 player/driver emulation.
 class HostVlcPlayer:public PlaybackPort {
  bool fonts=false;
+ std::string preferred_audio_language;
  libvlc_instance_t *instance=nullptr;
  libvlc_media_player_t *player=nullptr;
  std::vector<unsigned char> pixels=std::vector<unsigned char>(1920*1080*4);
@@ -36,10 +38,12 @@ class HostVlcPlayer:public PlaybackPort {
  }
  ~HostVlcPlayer()override{if(player){libvlc_media_player_stop(player);libvlc_media_player_release(player);}if(instance)libvlc_release(instance);if(fonts)FcFini();omp_pause_resource_all(omp_pause_hard);}
  bool ready()const{return player!=nullptr;}
+ void prepare_audio(const plex::MediaTrack *track)override{preferred_audio_language=track?track->language:"";}
  bool open(const std::string &url,int64_t offset)override{
   if(!player)return false;stop();frames=0;samples=0;
   auto *media=url.find("://")==std::string::npos?libvlc_media_new_path(instance,url.c_str()):libvlc_media_new_location(instance,url.c_str());
   if(!media)return false;
+  if(!preferred_audio_language.empty()){std::string option=":audio-language="+preferred_audio_language;libvlc_media_add_option(media,option.c_str());}
   if(offset>0){std::string option=":start-time="+std::to_string(offset/1000.0);libvlc_media_add_option(media,option.c_str());}
   libvlc_media_player_set_media(player,media);libvlc_media_release(media);
   return libvlc_media_player_play(player)==0;
@@ -49,6 +53,10 @@ class HostVlcPlayer:public PlaybackPort {
  void pause()override{if(player)libvlc_media_player_set_pause(player,!paused());}
  bool paused()const override{return player&&libvlc_media_player_get_state(player)==libvlc_Paused;}
  void seek(int64_t ms)override{if(player)libvlc_media_player_set_time(player,ms);}
+ std::vector<plex::NativeTrack> native_tracks(bool subtitle)const override{return vlc_track_descriptors(player,subtitle);}
+ bool select_native_track(bool subtitle,int id)override{return player&&(subtitle?libvlc_video_set_spu(player,id):libvlc_audio_set_track(player,id))==0;}
+ bool add_external_subtitle(const std::string &url)override{return player&&libvlc_media_player_add_slave(player,libvlc_media_slave_type_subtitle,url.c_str(),true)==0;}
+ int selected_native_track(bool subtitle)const{return player?(subtitle?libvlc_video_get_spu(player):libvlc_audio_get_track(player)):-1;}
  PlaybackObservation observe()const override{
   if(!player)return {true,false,false,false,false,true};
   auto state=libvlc_media_player_get_state(player);

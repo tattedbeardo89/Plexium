@@ -11,7 +11,7 @@ endif
 CORE := $(OBJ)/src/plex/client.o $(OBJ)/third_party/tinyxml2/tinyxml2.o
 APP := $(OBJ)/src/app/session.o
 IMGUI := $(addprefix $(OBJ)/third_party/imgui/,$(addsuffix .o,imgui imgui_draw imgui_widgets imgui_tables))
-SUITES := playback-integration-tests  artwork-tests session-restore-tests state-tests guide-tests startup-runtime-tests runtime-tests session-tests protocol-tests auth-tests home-tests home-feed-tests
+SUITES := episode-continuation-tests durable-progress-tests track-selection-tests progress-journal-tests playback-integration-tests  artwork-tests session-restore-tests state-tests guide-tests startup-runtime-tests runtime-tests session-tests protocol-tests auth-tests home-tests home-feed-tests
 .PHONY: all test clean
 all: $(addprefix $(OUT)/,$(SUITES)) $(OUT)/plexium-render $(OUT)/transport-probe $(OUT)/plexium-cli
 $(OUT)/artwork-tests: $(CORE) $(OBJ)/src/plex/artwork.o $(OBJ)/tests/artwork_tests.o
@@ -77,3 +77,13 @@ $(OBJ)/tests/host_vlc_tests.o: CXXFLAGS += $(if $(VLC_HOST_CFLAGS),$(VLC_HOST_CF
 $(OUT)/host-vlc-tests: $(CORE) $(APP) $(OBJ)/tests/host_vlc_tests.o
 	@mkdir -p $(dir $@)
 	$(CXX) $^ $(LDFLAGS) $(if $(VLC_HOST_LIBS),$(VLC_HOST_LIBS),$(shell pkg-config --libs libvlc fontconfig pixman-1)) -l:libfontconfig.so.1 -l:libpixman-1.so.0 -fopenmp -o $@
+
+$(OUT)/track-selection-tests: $(CORE) $(OBJ)/tests/track_selection_tests.o
+	$(CXX) $^ $(LDFLAGS) -o $@
+$(OUT)/progress-journal-tests: $(CORE) $(OBJ)/tests/progress_journal_tests.o
+	$(CXX) $^ $(LDFLAGS) -o $@
+
+$(OUT)/episode-continuation-tests: $(CORE) $(APP) $(OBJ)/tests/episode_continuation_tests.o
+	$(CXX) $^ $(LDFLAGS) -o $@
+$(OUT)/durable-progress-tests: $(CORE) $(APP) $(OBJ)/tests/durable_progress_tests.o
+	$(CXX) $^ $(LDFLAGS) -o $@

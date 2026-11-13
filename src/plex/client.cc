@@ -99,6 +99,10 @@ std::vector<Item> items(const Json &j,bool include_media) {
         x.year = static_cast<int>(std::clamp<int64_t>(number(v,"year"),0,9999));
         x.duration = std::max<int64_t>(0,number(v,"duration"));
         x.offset = std::max<int64_t>(0,number(v,"viewOffset"));
+        auto markers=v.find("Marker");if(markers!=v.end()&&markers->is_array())for(const auto &marker:*markers){
+            auto type=text(marker,"type");auto start=number(marker,"startTimeOffset",-1),end=number(marker,"endTimeOffset",-1);
+            if((type=="intro"||type=="credits")&&start>=0&&end>start&&(x.duration<=0||end<=x.duration))x.markers.push_back({type,start,end});if(x.markers.size()==32)break;
+        }
         x.watched = number(v, "viewCount") > 0;
         x.artist=display_text(text(v,"grandparentTitle",x.type=="album"?text(v,"parentTitle",text(v,"originalTitle")):text(v,"originalTitle")),256);
         x.album=display_text(text(v,"parentTitle"),256);

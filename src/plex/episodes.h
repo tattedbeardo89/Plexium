@@ -13,7 +13,7 @@ inline Result next_episode(Client &client,const std::string &base,const std::str
         previous_first=entries.front().id;
         for(const auto &item:entries) {
             if(item.type!="episode")continue;
-            if(found)return {Json{{"MediaContainer",{{"Metadata",Json::array({{{"ratingKey",item.id},{"type",item.type},{"title",item.title},{"Media",item.media},{"duration",item.duration},{"parentRatingKey",item.parent_id},{"grandparentRatingKey",item.grandparent_id},{"parentIndex",item.season},{"index",item.episode}}})}}}},"",200};
+            if(found&&!item.watched)return {Json{{"MediaContainer",{{"Metadata",Json::array({{{"ratingKey",item.id},{"type",item.type},{"title",item.title},{"Media",item.media},{"duration",item.duration},{"viewOffset",item.offset},{"viewCount",item.watched?1:0},{"parentRatingKey",item.parent_id},{"grandparentRatingKey",item.grandparent_id},{"parentIndex",item.season},{"index",item.episode}}})}}}},"",200};
             if(item.id==current.id)found=true;
         }
         auto mc=page.data.find("MediaContainer");auto total=mc==page.data.end()?0:number(*mc,"totalSize",entries.size());

@@ -15,7 +15,7 @@ struct Fixture {
   }
   if(has("universal/stop")){++stops;return outage?plex::Reply{503,"{}",""}:ok({});}
   if(has("universal/ping")){++pings;TEST_REQUIRE(q.headers.at("X-Plex-Token")=="server-token");return ok({});}
-  if(has("/:/timeline")){++timelines;last_timeline=q.url;TEST_REQUIRE(q.headers.at("X-Plex-Token")=="server-token");return outage?plex::Reply{503,"{}",""}:ok({});}
+  if(has("/:/timeline")){++timelines;last_timeline=q.url;TEST_REQUIRE(q.headers.at("X-Plex-Token")=="server-token");if(!outage){auto at=q.url.find("time=");if(at!=std::string::npos){at+=5;metadata["viewOffset"]=plex::number(plex::Json{{"position",q.url.substr(at,q.url.find('&',at)-at)}},"position");}}return outage?plex::Reply{503,"{}",""}:ok({});}
   if(has("/api/v2/user"))return ok({{"id",7}});
   if(has("/api/v2/home/users"))return ok({{"users",plex::Json::array({{{"id",1},{"title","Owner"},{"protected",false}}})}});
   if(has("/api/home/users/"))return ok({{"id",1},{"authenticationToken","profile-token"}});

@@ -48,7 +48,7 @@ int main(){
  fixture.outage=true;engine.reject=false;engine.observation={true,true,false,false,false,false};
  for(const char *id:{"2","3"}){fixture.metadata["ratingKey"]=id;fixture.metadata["key"]=std::string("/library/metadata/")+id;send(Action::Details,id);send(Action::Play);send(Action::Tick);send(Action::Stop);}
  fixture.metadata["ratingKey"]="4";fixture.metadata["key"]="/library/metadata/4";send(Action::Details,"4");send(Action::Play);clock+=100;
- auto budget=fixture.timelines;send(Action::Tick);TEST_REQUIRE(fixture.timelines-budget==2);fixture.outage=false;send(Action::Stop);
+ auto budget=fixture.timelines;send(Action::Tick);TEST_REQUIRE(fixture.timelines-budget==0); // both retry slots reconcile mismatched identities; neither may write stale progressfixture.outage=false;send(Action::Stop);
  send(Action::SignOut);auto count=fixture.timelines;send(Action::Tick);TEST_REQUIRE(fixture.timelines==count);
  std::filesystem::remove_all(root);std::cout<<"PASS: production session negotiation, versions, Direct Play/Stream/transcode, state observations, timeline failures, retained lease retry and profile isolation\n";
 }

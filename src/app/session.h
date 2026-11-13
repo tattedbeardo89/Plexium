@@ -7,6 +7,8 @@
 #include "plex/guide.h"
 #include "plex/streaming.h"
 #include "plex/progress_outbox.h"
+#include "plex/progress_journal.h"
+#include "plex/tracks.h"
 #include <deque>
 #include <thread>
 #include "runtime/owned_jobs.h"
@@ -19,8 +21,8 @@ inline constexpr const char *title_id="PPSA85421";
 inline constexpr const char *data_path=PLEX_STATE_ROOT;
 enum class PlaybackState {Idle,Resolving,Opening,Buffering,Playing,Paused,Seeking,Stopping,Stopped,Error,Released};
 struct PlaybackObservation {bool known=false,playing=false,buffering=false,paused=false,ended=false,failed=false;};
-enum class Screen { Welcome, Linking, Profiles, Pin, Servers, Home, Library, Details, Settings, Search, Playback, Guide };
-enum class Action { Restore, Link, Poll, Cancel, Profile, Server, Home, Library, Browse, Page, Details, Children, Search, Play, FreeTV, PlayLive, Stop, Settings, SignOut, Back, Pause, Seek, Audio, Subtitle, Tick, LiveTV, GuidePage, TuneChannel, Version, Quality };
+enum class Screen { Welcome, Linking, Profiles, Pin, Servers, Home, Library, Details, Settings, Search, Playback, Guide, Tracks };
+enum class Action { Restore, Link, Poll, Cancel, Profile, Server, Home, Library, Browse, Page, Details, Children, Search, Play, FreeTV, PlayLive, Stop, Settings, SignOut, Back, Pause, Seek, Audio, Subtitle, Tick, LiveTV, GuidePage, TuneChannel, Version, Quality, Tracks, SelectAudio, SelectSubtitle, AutoPlay, CancelNext, PlayNext, SkipMarker };
 struct Command { Action action; std::string id, text; };
 struct MediaContext {std::string base,token,scope,account_token;};
 struct Destination {std::string id,label;};
@@ -33,6 +35,10 @@ struct Model {
  std::vector<plex::Hub> rails;
  plex::Guide guide;
  plex::Item detail;
+ std::vector<plex::MediaTrack> audio_tracks,subtitle_tracks;
+ plex::TrackSelection tracks;
+ std::vector<plex::Item> upcoming;
+ int autoplay_remaining=0;bool autoplay=true;bool tracks_during_playback=false;
  std::string library_id,library_title,library_type,library_tab,library_path;
  std::vector<plex::Hub> detail_rails;
  int page_start=0,total=0;
@@ -49,6 +55,7 @@ std::string poster(const plex::Item&);
 class PlaybackPort {
  public: virtual ~PlaybackPort()=default;
  virtual bool open(const std::string&,int64_t)=0;
+ virtual void prepare_audio(const plex::MediaTrack*){}
  virtual void stop()=0;
  virtual int64_t position() const {return 0;}
  virtual void pause() {}
@@ -57,6 +64,9 @@ class PlaybackPort {
  virtual PlaybackObservation observe() const {return {};}
  virtual void audio_next() {}
  virtual void subtitle_next() {}
+ virtual std::vector<plex::NativeTrack> native_tracks(bool)const{return {};}
+ virtual bool select_native_track(bool subtitle,int id){return subtitle&&id<0;}
+ virtual bool add_external_subtitle(const std::string&){return false;}
 };
 // All network/storage/player operations execute on one worker, never the render thread.
 class Session {
@@ -81,9 +91,20 @@ class Session {
  plex::StreamPlan stream;
  std::string stream_base,stream_token;
  plex::ProgressOutbox outbox;
+ plex::ProgressJournal journal;
+ std::string playback_session,last_ack_session,last_ack_id,last_ack_state,track_preferences_scope;
+ int64_t playback_baseline=0,playback_viewed=0,last_ack_position=-1;
+ bool tracks_pending=false,external_applied=false;double next_deadline=0;
+ std::string audio_language,subtitle_language;bool prefer_subtitles=false;
+ void load_tracks();
+ void apply_tracks();
+ void save_preferences();
+ void prepare_next();
+ bool play_next();
  bool playback_started=false,local_connection=false;
  uint64_t playback_serial=0;
  double heartbeat_at=0;
+ void persist_progress();
  void report_progress(const std::string&,int64_t);
  void flush_progress();
  bool close_stream();
@@ -108,6 +129,7 @@ class Session {
  public:
  Session(plex::Transport,const std::string&,PlaybackPort&,std::function<double()> monotonic_clock={});
  Model dispatch(const Command&);
+ void shutdown();
  std::function<void(const Model&)> progress;
  MediaContext media_context()const;
 };

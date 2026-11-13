@@ -4177,3 +4177,13 @@ bool video_shutdown(){
     mpv_out={};shown=last_slot=-1;format={};planes.has_picture=false;
     return true;
 }
+
+// Plex metadata selection crosses through native ES descriptors, never Plex IDs.
+#include "vlc_tracks.h"
+std::vector<plex::NativeTrack> player_track_descriptors(bool subtitle){return asking()?vlc_track_descriptors(mp,subtitle):std::vector<plex::NativeTrack>{};}
+bool player_select_native_track(bool subtitle,int id){
+ if(!asking())return false;
+ if(subtitle&&id<0){player_subtitles_off();return true;}
+ if(subtitle){player_set_subtitle_track(id);return player_subtitle_track()==id;}
+ player_set_audio_track(id);return player_audio_track()==id;
+}
