@@ -121,9 +121,11 @@ bool exit_requested(const PadState &pad,double now,double &since){
 }
 __attribute__((noinline)) static int run_native(){
  ui_first_error=VK_SUCCESS;application_workers_retained=false;native_startup_phase=0;plexium::last_shutdown_phase=0;
- std::fprintf(stderr,"lifecycle: build=%s source-date=%s mode=%s\n",PLEX_BUILD_COMMIT,PLEX_SOURCE_DATE,PLEX_STARTUP_ONLY?"stage1":"full-client");
+
  NativeLifetime lifetime;
- plat_init();startup("platform ready");lifetime.graphics=true;
+ plat_init();
+ std::fprintf(stderr,"lifecycle: build=%s source-date=%s mode=%s\n",PLEX_BUILD_COMMIT,PLEX_SOURCE_DATE,PLEX_STARTUP_ONLY?"stage1":"full-client");
+ startup("platform ready");lifetime.graphics=true;
  if(!gfx_init())return lifetime.finish(1);startup("graphics ready");
  IMGUI_CHECKVERSION();ImGui::CreateContext();lifetime.context=true;auto &io=ImGui::GetIO();io.IniFilename=nullptr;io.LogFilename=nullptr;io.DisplaySize={float(gfx.width),float(gfx.height)};
  std::string font=std::string(plat_data_dir())+"/fonts/Inter-Regular.ttf";if(FILE *file=std::fopen(font.c_str(),"rb")){std::fclose(file);io.Fonts->AddFontFromFileTTF(font.c_str(),32);}
