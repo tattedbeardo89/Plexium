@@ -101,7 +101,7 @@ void Session::flush_progress(){
    if(verdict!=plex::Reconcile::Send){if(verdict==plex::Reconcile::AlreadyApplied){last_ack_session=u.session;last_ack_id=u.item.id;last_ack_state=u.state;last_ack_position=u.position;}outbox.ack(u.item.id,u.sequence);persist_progress();continue;}
    if(!budget){++n;continue;}
   }
-  --budget;auto result=bounded.timeline(base,token,u.item,u.state,u.position);
+  --budget;auto result=bounded.timeline(base,token,u.item,u.state,u.position,u.session);
   if(result){last_ack_session=u.session;last_ack_id=u.item.id;last_ack_state=u.state;last_ack_position=u.position;if(u.session==playback_session&&u.item.id==model.detail.id)playback_baseline=u.position;outbox.ack(u.item.id,u.sequence);}
   else{outbox.failed(u.item.id,u.sequence,now());if(result.status==401||result.status==403)outbox.entries[n].blocked=true;++n;}
   persist_progress();
@@ -198,6 +198,7 @@ bool Session::discover(){
 bool Session::connect(const std::string&id){
  auto found=std::find_if(resources.begin(),resources.end(),[&](const auto&s){return s.id==id;});
  if(found==resources.end()){fail("Unknown server selection");return false;}
+ if((model.screen==Screen::Playback||(model.screen==Screen::Tracks&&model.tracks_during_playback))&&playback_started)report_progress("stopped",model.detail.offset);
  player.stop();if(!close_stream())return false;outbox.entries.clear();playback_started=false;
  base.clear();token.clear();server_id.clear();history.clear();cached_home.clear();pages.clear();metadata.clear();channels.clear();live_parts.clear();channels_loaded=0;personal_channels=plex::Json::array();personal_loaded=0;model.guide={};home_loaded=0;model.sections.clear();model.rails.clear();model.entries.clear();model.navigation.clear();model.detail={};model.screen=Screen::Servers;
  if(found->token.empty())found->token=active;

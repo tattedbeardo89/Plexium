@@ -433,13 +433,16 @@ Result Client::browse(const std::string &b, const std::string &t, const std::str
                 t);
 }
 Result Client::timeline(const std::string &b, const std::string &t, const Item &i,
-                        const std::string &state, int64_t pos) {
+                        const std::string &state, int64_t pos, const std::string &session) {
     if (state != "playing" && state != "paused" && state != "stopped")
         return {{}, "Invalid playback state", 0};
+    if(session.size()>128||session.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")!=std::string::npos)
+        return {{}, "Invalid playback session", 0};
     return call("GET", b,
                 "/:/timeline?ratingKey=" + encode(i.id) + "&key=" + encode(i.key) +
                     "&state=" + state + "&time=" + std::to_string(std::max<int64_t>(0, pos)) +
-                    "&duration=" + std::to_string(i.duration),
+                    "&duration=" + std::to_string(i.duration) +
+                    (session.empty()?std::string():"&X-Plex-Session-Identifier="+encode(session)),
                 t);
 }
 Result Client::watched(const std::string &b, const std::string &t, const Item &i, bool yes) {

@@ -7,7 +7,11 @@
 #include <iostream>
 using namespace plexium;
 struct Engine:PlaybackPort {
- int opens=0,stops=0;bool reject=false;int64_t at=12000;
+ int opens=0,stops=0,audio_id=-1,subtitle_id=-1;bool reject=false;int64_t at=12000;
+ std::string prepared_language;
+ void prepare_audio(const plex::MediaTrack *track)override{prepared_language=track?track->language:"";}
+ std::vector<plex::NativeTrack> native_tracks(bool subtitle)const override{return subtitle?std::vector<plex::NativeTrack>{{88,"English captions","eng","srt",0}}:std::vector<plex::NativeTrack>{{42,"English","eng","aac",2},{43,"Spanish","spa","aac",2}};}
+ bool select_native_track(bool subtitle,int id)override{(subtitle?subtitle_id:audio_id)=id;return true;}
  PlaybackObservation observation{true,false,true,false,false,false};
  bool open(const std::string&,int64_t offset)override{++opens;at=offset;return !reject;}
  void stop()override{++stops;}int64_t position()const override{return at;}
@@ -25,7 +29,7 @@ int main(){
  auto model=send(Action::Details,"1");TEST_REQUIRE(model.detail.media.size()==2);
  model=send(Action::Play);TEST_REQUIRE(model.screen==Screen::Playback&&model.playback_mode==plex::Mode::DirectPlay&&model.playback_state==PlaybackState::Opening&&fixture.timelines==0);
  model=send(Action::Tick);TEST_REQUIRE(model.playback_state==PlaybackState::Buffering&&fixture.timelines==0);
- engine.observation={true,true,false,false,false,false};model=send(Action::Tick);TEST_REQUIRE(model.playback_state==PlaybackState::Playing&&fixture.timelines==1);
+ engine.observation={true,true,false,false,false,false};model=send(Action::Tick);TEST_REQUIRE(model.playback_state==PlaybackState::Playing&&fixture.timelines==1);TEST_REQUIRE(fixture.last_timeline.find("X-Plex-Session-Identifier=")!=std::string::npos);
  model=send(Action::Pause);TEST_REQUIRE(model.playback_state==PlaybackState::Paused&&fixture.last_timeline.find("state=paused")!=std::string::npos);
  model=send(Action::Seek);TEST_REQUIRE(model.playback_state==PlaybackState::Seeking&&engine.at==11000);
  fixture.outage=true;model=send(Action::Stop);TEST_REQUIRE(model.playback_state==PlaybackState::Stopped);fixture.outage=false;auto reports=fixture.timelines;clock+=11;send(Action::Tick);TEST_REQUIRE(fixture.timelines==reports+1&&fixture.last_timeline.find("state=stopped")!=std::string::npos);
@@ -48,7 +52,17 @@ int main(){
  fixture.outage=true;engine.reject=false;engine.observation={true,true,false,false,false,false};
  for(const char *id:{"2","3"}){fixture.metadata["ratingKey"]=id;fixture.metadata["key"]=std::string("/library/metadata/")+id;send(Action::Details,id);send(Action::Play);send(Action::Tick);send(Action::Stop);}
  fixture.metadata["ratingKey"]="4";fixture.metadata["key"]="/library/metadata/4";send(Action::Details,"4");send(Action::Play);clock+=100;
- auto budget=fixture.timelines;send(Action::Tick);TEST_REQUIRE(fixture.timelines-budget==0); // both retry slots reconcile mismatched identities; neither may write stale progressfixture.outage=false;send(Action::Stop);
+ auto budget=fixture.timelines;send(Action::Tick);TEST_REQUIRE(fixture.timelines-budget==0); // both retry slots reconcile mismatched identities; neither may write stale progress
+ fixture.outage=false;send(Action::Stop);
  send(Action::SignOut);auto count=fixture.timelines;send(Action::Tick);TEST_REQUIRE(fixture.timelines==count);
+ // Preplay selection, actual Session application and stable-scope preferences.
+ fixture.metadata["ratingKey"]="1";fixture.metadata["key"]="/library/metadata/1";fixture.metadata["viewOffset"]=0;
+ fixture.metadata["Media"][0]["Part"][0]["Stream"]=plex::Json::parse(R"([{"id":10,"streamType":2,"languageCode":"eng","codec":"aac","channels":2},{"id":11,"streamType":2,"languageCode":"spa","codec":"aac","channels":2},{"id":20,"streamType":3,"languageCode":"eng","codec":"srt"}])");
+ TEST_REQUIRE(plex::save_credentials(root+"/account.json","test-device","account-token"));send(Action::Restore);send(Action::Profile,"1");send(Action::Details,"1");
+ model=send(Action::Tracks);TEST_REQUIRE(model.audio_tracks.size()==2&&model.subtitle_tracks.size()==1);
+ send(Action::SelectAudio,"11");send(Action::SelectSubtitle,"20");model=send(Action::SelectAudio,"999");TEST_REQUIRE(model.tracks.audio=="11");send(Action::Back);
+ send(Action::Play);TEST_REQUIRE(engine.prepared_language=="spa");send(Action::Tick);TEST_REQUIRE(engine.audio_id==43&&engine.subtitle_id==88);
+ send(Action::Tracks);send(Action::SelectAudio,"10");TEST_REQUIRE(engine.audio_id==42);send(Action::SelectSubtitle,"off");TEST_REQUIRE(engine.subtitle_id==-1);send(Action::Back);send(Action::Stop);send(Action::SignOut);
+ TEST_REQUIRE(plex::save_credentials(root+"/account.json","test-device","account-token"));send(Action::Restore);send(Action::Profile,"1");send(Action::Details,"1");model=send(Action::Tracks);TEST_REQUIRE(model.tracks.audio=="10"&&model.tracks.subtitle.empty());send(Action::Back);send(Action::SignOut);
  std::filesystem::remove_all(root);std::cout<<"PASS: production session negotiation, versions, Direct Play/Stream/transcode, state observations, timeline failures, retained lease retry and profile isolation\n";
 }

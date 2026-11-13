@@ -100,7 +100,7 @@ class Client {
     Result browse(const std::string &base, const std::string &token, const std::string &path,
                   int start = 0, int size = 60);
     Result timeline(const std::string &base, const std::string &token, const Item &,
-                    const std::string &state, int64_t position);
+                    const std::string &state, int64_t position, const std::string &session = "");
     Result watched(const std::string &base, const std::string &token, const Item &, bool watched);
 };
 Pin pin(const Json &);
