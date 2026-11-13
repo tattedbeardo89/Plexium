@@ -32,6 +32,19 @@ The original UI and protocols are GPL-3.0-or-later. Future increments should add
 
 ## Rebuild branch bootstrap
 
+Artwork uses three single-job pthread lanes (two media, one avatar), each with
+an explicit 1 MiB stack. Cache maintenance shares a media lane. Failed thread
+creation keeps the UI alive, reports only an error code, and backs off retries.
+Results are polled on the render thread; lane reuse joins the completed thread.
+Destruction joins outstanding jobs before releasing callbacks/results. Stacks
+and concurrency are bounded; transport/decode/driver completion and physical
+stack acceptance remain separate validation requirements.
+
+Personal guide parsing distinguishes explicit empty Plex containers from
+malformed provider, lineup and grid shapes. The requested time window is applied
+before the 100-program response cap, preventing earlier daily airings from
+displacing the visible page. Only actual Plex airings enter the view.
+
 The new `feature/plexium-native-rebuild` branch retains the modules above and adds
 an isolated Stage 1 runtime, a checked pthread session worker and a closeable,
 bounded render-thread media queue. The native build defaults to startup-only;
