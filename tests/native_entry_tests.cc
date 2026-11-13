@@ -24,6 +24,7 @@ void plat_hide_splash(){}
 }
 bool gfx_init(){events.push_back("graphics");gfx.width=1280;gfx.height=720;gfx.image_count=2;return failure!=1;}
 bool gfx_shutdown(){events.push_back("graphics-wait");return failure!=5;}
+void gfx_destroy(){events.push_back("graphics-destroy");}
 VkCommandBuffer gfx_begin_frame(){return failure==3?VK_NULL_HANDLE:reinterpret_cast<VkCommandBuffer>(1);}
 void gfx_begin_pass(VkCommandBuffer){}
 bool gfx_end_frame(VkCommandBuffer){++frames;return failure!=4;}
@@ -46,6 +47,8 @@ int main(){
   TEST_REQUIRE(count("graphics-wait")==int(failure<3||failure>=5));
   TEST_REQUIRE(count("ui-stop")==int(failure==0||failure==6));
   TEST_REQUIRE(count("textures-stop")==int(failure==0||failure==6));
+  TEST_REQUIRE(count("graphics-destroy")==int(failure<3||failure==6));
+  if(failure==0||failure==6)TEST_REQUIRE(std::find(events.begin(),events.end(),"ui-stop")<std::find(events.begin(),events.end(),"graphics-destroy"));
  }
  std::cout<<"PASS: actual startup-only native entry, partial initialization, frame failures, exit chord, context cleanup\n";
 }

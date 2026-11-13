@@ -106,7 +106,9 @@ class Runtime {
  public:
  explicit Runtime(std::unique_ptr<Session>);
  ~Runtime();
- bool ready()const{return worker_error==0;}
+ // Owner-thread operation: close the render queue before joining this worker.
+ void close();
+ bool ready()const{std::lock_guard<std::mutex> lock(mutex);return !closing&&worker_error==0;}
  int start_error()const{return worker_error;}
  bool send(Command);
  Model snapshot() const;

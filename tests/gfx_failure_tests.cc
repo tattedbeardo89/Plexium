@@ -5,6 +5,21 @@
 #include "../src/gfx.cc"
 static VkResult wait_result, begin_result, submit_result, present_result;
 static int waits, resets, submits, presents;
+static int surface_failure=0,swap_creates=0;
+static VKAPI_ATTR VkResult VKAPI_CALL formats_mock(VkPhysicalDevice,VkSurfaceKHR,uint32_t *count,VkSurfaceFormatKHR *out){
+ if(surface_failure==1)return VK_ERROR_SURFACE_LOST_KHR;
+ if(!out){*count=surface_failure==2?0:surface_failure==3?1000000:1;return VK_SUCCESS;}
+ if(surface_failure==4)return VK_INCOMPLETE;
+ *count=1;out[0]={VK_FORMAT_B8G8R8A8_UNORM,VK_COLOR_SPACE_SRGB_NONLINEAR_KHR};return VK_SUCCESS;
+}
+static VKAPI_ATTR VkResult VKAPI_CALL caps_mock(VkPhysicalDevice,VkSurfaceKHR,VkSurfaceCapabilitiesKHR *out){
+ if(surface_failure==5)return VK_ERROR_SURFACE_LOST_KHR;
+ *out={};out->minImageCount=2;out->currentExtent={1280,720};
+ out->supportedCompositeAlpha=surface_failure==6?0:VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR|VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR;return VK_SUCCESS;
+}
+static VKAPI_ATTR VkResult VKAPI_CALL swap_mock(VkDevice,const VkSwapchainCreateInfoKHR *info,const VkAllocationCallbacks*,VkSwapchainKHR*){
+ ++swap_creates;TEST_REQUIRE(info->compositeAlpha==VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR);return VK_ERROR_OUT_OF_DEVICE_MEMORY;
+}
 static VKAPI_ATTR VkResult VKAPI_CALL idle_mock(VkDevice){return wait_result;}
 static VKAPI_ATTR VkResult VKAPI_CALL wait_mock(VkDevice,uint32_t,const VkFence*,VkBool32,uint64_t timeout){TEST_REQUIRE(timeout==frame_timeout_ns);++waits;return wait_result;}
 static VKAPI_ATTR VkResult VKAPI_CALL pool_mock(VkDevice,VkCommandPool,VkCommandPoolResetFlags){return VK_SUCCESS;}
@@ -27,5 +42,7 @@ int main(){
  reset_test();cmd=gfx_begin_frame();present_result=VK_ERROR_OUT_OF_DATE_KHR;TEST_REQUIRE(!gfx_end_frame(cmd));TEST_REQUIRE(submits==1&&presents==1);TEST_REQUIRE(!gfx_begin_frame());
  reset_test();cmd=gfx_begin_frame();TEST_REQUIRE(gfx_end_frame(cmd));TEST_REQUIRE(gfx.frame_number==1&&resets==1&&submits==1&&presents==1);
  reset_test();gfx.device=reinterpret_cast<VkDevice>(uintptr_t(1));vkDeviceWaitIdle=idle_mock;wait_result=VK_ERROR_DEVICE_LOST;TEST_REQUIRE(!gfx_shutdown());wait_result=VK_SUCCESS;TEST_REQUIRE(gfx_shutdown());
+ vkGetPhysicalDeviceSurfaceFormatsKHR=formats_mock;vkGetPhysicalDeviceSurfaceCapabilitiesKHR=caps_mock;vkCreateSwapchainKHR=swap_mock;
+ for(surface_failure=1;surface_failure<=7;++surface_failure){swap_creates=0;TEST_REQUIRE(!create_swapchain());TEST_REQUIRE(swap_creates==int(surface_failure==7));}
  puts("PASS: real frame loop stops on timeout/device loss/submit/present errors; success advances once");
 }

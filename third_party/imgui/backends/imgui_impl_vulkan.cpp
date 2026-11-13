@@ -945,6 +945,7 @@ static void ImGui_ImplVulkan_CreateShaderModules(VkDevice device, const VkAlloca
         VkShaderModuleCreateInfo* p_vert_info = (v->CustomShaderVertCreateInfo.sType == VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO) ? &v->CustomShaderVertCreateInfo : &default_vert_info;
         VkResult err = vkCreateShaderModule(device, p_vert_info, allocator, &bd->ShaderModuleVert);
         check_vk_result(err);
+        if (err != VK_SUCCESS) return;
     }
     if (bd->ShaderModuleFrag == VK_NULL_HANDLE)
     {
@@ -955,6 +956,7 @@ static void ImGui_ImplVulkan_CreateShaderModules(VkDevice device, const VkAlloca
         VkShaderModuleCreateInfo* p_frag_info = (v->CustomShaderFragCreateInfo.sType == VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO) ? &v->CustomShaderFragCreateInfo : &default_frag_info;
         VkResult err = vkCreateShaderModule(device, p_frag_info, allocator, &bd->ShaderModuleFrag);
         check_vk_result(err);
+        if (err != VK_SUCCESS) return;
     }
 }
 
@@ -966,6 +968,7 @@ static VkPipeline ImGui_ImplVulkan_CreatePipeline(VkDevice device, const VkAlloc
 {
     ImGui_ImplVulkan_Data* bd = ImGui_ImplVulkan_GetBackendData();
     ImGui_ImplVulkan_CreateShaderModules(device, allocator);
+    if (!bd->ShaderModuleVert || !bd->ShaderModuleFrag) return VK_NULL_HANDLE;
 
     VkPipelineShaderStageCreateInfo stage[2] = {};
     stage[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -1074,9 +1077,14 @@ static VkPipeline ImGui_ImplVulkan_CreatePipeline(VkDevice device, const VkAlloc
         create_info.renderPass = VK_NULL_HANDLE; // Just make sure it's actually nullptr.
     }
 #endif
-    VkPipeline pipeline;
+    VkPipeline pipeline = VK_NULL_HANDLE;
     VkResult err = vkCreateGraphicsPipelines(device, pipelineCache, 1, &create_info, allocator, &pipeline);
     check_vk_result(err);
+    if (err != VK_SUCCESS)
+    {
+        if (pipeline) vkDestroyPipeline(device, pipeline, allocator);
+        return VK_NULL_HANDLE;
+    }
     return pipeline;
 }
 
@@ -1102,7 +1110,7 @@ static VkDescriptorSet ImGui_ImplVulkan_CreateSamplerDS(VkSampler sampler)
     ImGui_ImplVulkan_Data* bd = ImGui_ImplVulkan_GetBackendData();
     ImGui_ImplVulkan_InitInfo* v = &bd->VulkanInitInfo;
 
-    VkDescriptorSet descriptor_set;
+    VkDescriptorSet descriptor_set = VK_NULL_HANDLE;
     VkDescriptorSetAllocateInfo alloc_info = {};
     alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
     alloc_info.descriptorPool = bd->DescriptorPool ? bd->DescriptorPool : v->DescriptorPool;
@@ -1110,6 +1118,7 @@ static VkDescriptorSet ImGui_ImplVulkan_CreateSamplerDS(VkSampler sampler)
     alloc_info.pSetLayouts = &bd->DescriptorSetLayoutSampler;
     VkResult err = vkAllocateDescriptorSets(v->Device, &alloc_info, &descriptor_set);
     check_vk_result(err);
+    if (err != VK_SUCCESS) return VK_NULL_HANDLE;
 
     VkDescriptorImageInfo desc_image = {};
     desc_image.sampler = sampler;
@@ -1132,8 +1141,11 @@ bool ImGui_ImplVulkan_CreateDeviceObjects()
 
     if (!bd->DescriptorSetLayoutTexture)
         ImGui_ImplVulkan_CreateDescriptorSetLayout(&bd->DescriptorSetLayoutTexture, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
+    if (!bd->DescriptorSetLayoutTexture) return false;
     if (!bd->DescriptorSetLayoutSampler)
         ImGui_ImplVulkan_CreateDescriptorSetLayout(&bd->DescriptorSetLayoutSampler, VK_DESCRIPTOR_TYPE_SAMPLER);
+
+    if (!bd->DescriptorSetLayoutSampler) return false;
 
     if (v->DescriptorPoolSize != 0)
     {
@@ -1151,6 +1163,7 @@ bool ImGui_ImplVulkan_CreateDeviceObjects()
         pool_info.pPoolSizes = pool_sizes;
         err = vkCreateDescriptorPool(v->Device, &pool_info, v->Allocator, &bd->DescriptorPool);
         check_vk_result(err);
+        if (err != VK_SUCCESS) return false;
     }
 
     // Create samplers
@@ -1170,14 +1183,18 @@ bool ImGui_ImplVulkan_CreateDeviceObjects()
         info.maxAnisotropy = 1.0f;
         err = vkCreateSampler(v->Device, &info, v->Allocator, &bd->SamplerLinear);
         check_vk_result(err);
+        if (err != VK_SUCCESS) return false;
         bd->SamplerLinearDS = ImGui_ImplVulkan_CreateSamplerDS(bd->SamplerLinear);
+        if (!bd->SamplerLinearDS) return false;
 
         info.magFilter = VK_FILTER_NEAREST;
         info.minFilter = VK_FILTER_NEAREST;
         info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
         err = vkCreateSampler(v->Device, &info, v->Allocator, &bd->SamplerNearest);
         check_vk_result(err);
+        if (err != VK_SUCCESS) return false;
         bd->SamplerNearestDS = ImGui_ImplVulkan_CreateSamplerDS(bd->SamplerNearest);
+        if (!bd->SamplerNearestDS) return false;
     }
 
     if (!bd->PipelineLayout)
@@ -1196,6 +1213,7 @@ bool ImGui_ImplVulkan_CreateDeviceObjects()
         layout_info.pPushConstantRanges = push_constants;
         err = vkCreatePipelineLayout(v->Device, &layout_info, v->Allocator, &bd->PipelineLayout);
         check_vk_result(err);
+        if (err != VK_SUCCESS) return false;
     }
 
     // Create pipeline
@@ -1204,7 +1222,10 @@ bool ImGui_ImplVulkan_CreateDeviceObjects()
     create_main_pipeline |= (v->UseDynamicRendering && v->PipelineInfoMain.PipelineRenderingCreateInfo.sType == VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR);
 #endif
     if (create_main_pipeline)
+        {
         ImGui_ImplVulkan_CreateMainPipeline(&v->PipelineInfoMain);
+        if (!bd->Pipeline) return false;
+    }
 
     // Create command pool/buffer for texture upload
     if (!bd->TexCommandPool)
@@ -1215,6 +1236,7 @@ bool ImGui_ImplVulkan_CreateDeviceObjects()
         info.queueFamilyIndex = v->QueueFamily;
         err = vkCreateCommandPool(v->Device, &info, v->Allocator, &bd->TexCommandPool);
         check_vk_result(err);
+        if (err != VK_SUCCESS) return false;
     }
     if (!bd->TexCommandBuffer)
     {
@@ -1224,6 +1246,7 @@ bool ImGui_ImplVulkan_CreateDeviceObjects()
         info.commandBufferCount = 1;
         err = vkAllocateCommandBuffers(v->Device, &info, &bd->TexCommandBuffer);
         check_vk_result(err);
+        if (err != VK_SUCCESS) return false;
     }
 
     return true;
@@ -1396,8 +1419,13 @@ bool    ImGui_ImplVulkan_Init(ImGui_ImplVulkan_InitInfo* info)
     vkGetPhysicalDeviceProperties(info->PhysicalDevice, &properties);
     bd->NonCoherentAtomSize = properties.limits.nonCoherentAtomSize;
 
+    // Plexium: initialization failures are ordinary recoverable errors. No GPU
+    // commands have been submitted here; release only successfully made objects.
     if (!ImGui_ImplVulkan_CreateDeviceObjects())
-        IM_ASSERT(0 && "ImGui_ImplVulkan_CreateDeviceObjects() failed!"); // <- Can't be hit yet.
+    {
+        ImGui_ImplVulkan_Shutdown();
+        return false;
+    }
 
     return true;
 }

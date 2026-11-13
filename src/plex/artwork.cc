@@ -24,6 +24,7 @@ void avatar_checkpoint(const char *phase,int status,size_t count) {
 }
 }
 void Artwork::update() {
+    if(closed)return;
     // Called before this frame draws any images. Previous frame commands may
     // still reference retired descriptors; library_free_image waits for the GPU.
     for(auto texture:retired)library_free_image(texture);
@@ -132,6 +133,7 @@ ImTextureID Artwork::avatar(const std::string &url,const std::string &token) {
     return request_image(q,"avatar:"+normalized,true);
 }
 ImTextureID Artwork::request_image(const Request &request,const std::string &key,bool avatar_image) {
+    if(closed)return 0;
     unsigned attempt=1;
     for (auto it=entries.begin();it!=entries.end();++it)
         if (it->key == key) {
@@ -148,11 +150,13 @@ ImTextureID Artwork::request_image(const Request &request,const std::string &key
     auto network = transport;
     auto epoch = generation;
     auto cache=avatar_image?avatar_disk:disk;auto state=stats;
+    auto stop=stopping;
     bool decode=!diagnostic(NoDecode);
     checkpoint(11,"artwork schedule");
     if(home_active)home_checkpoint(10,"first Home artwork scheduled");
-    int rc=lane.start([network, request, key, epoch, decode, avatar_image,cache,state,attempt] {
+    int rc=lane.start([network, request, key, epoch, decode, avatar_image,cache,state,attempt,stop] {
         Decoded out;
+        if(stop->load())return out;
         static std::atomic<unsigned> serial{0};out.request_id=++serial;
         out.key = key;out.attempt=attempt;
         out.generation = epoch;
@@ -174,9 +178,9 @@ ImTextureID Artwork::request_image(const Request &request,const std::string &key
         if(!disk_hit && !local_asset)++state->downloads;
         Reply reply;
         if(local_asset){std::ifstream file(request.url.substr(6),std::ios::binary|std::ios::ate);auto size=file?file.tellg():std::streampos(-1);if(size>0 && size<=4*1024*1024){reply.body.resize(static_cast<size_t>(size));file.seekg(0);if(file.read(&reply.body[0],reply.body.size()))reply.status=200;}}
-        else reply=disk_hit?Reply{200,std::move(cached),""}:network(current);
+        else {if(stop->load())return out;reply=disk_hit?Reply{200,std::move(cached),""}:network(current);}
         auto redirect_start=std::chrono::steady_clock::now();
-        for(int redirects=0;!local_asset && redirects<3 && reply.error.empty() &&
+        for(int redirects=0;!stop->load() && !local_asset && redirects<3 && reply.error.empty() &&
             (reply.status==301 || reply.status==302 || reply.status==303 || reply.status==307 || reply.status==308);++redirects){
             if(!image_redirect(request,current,reply.location)){if(avatar_image)avatar_checkpoint("redirect-rejected",reply.status,0);break;}
             auto elapsed=std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-redirect_start).count();
@@ -192,7 +196,7 @@ ImTextureID Artwork::request_image(const Request &request,const std::string &key
         }
         if(avatar_image)avatar_checkpoint(reply.error.empty()?"fetch-complete":"fetch-failed",reply.status,reply.body.size());
         checkpoint(12,"artwork downloaded",reply.body.size());
-        if(!decode) return out;
+        if(!decode || stop->load()) return out;
         if (reply.status != 200 || !reply.error.empty() || reply.body.empty() ||
             reply.body.size() > 4 * 1024 * 1024) {
             if(avatar_image)avatar_checkpoint("http-or-size-rejected",reply.status,reply.body.size());
@@ -230,7 +234,7 @@ ImTextureID Artwork::request_image(const Request &request,const std::string &key
             if(avatar_image)avatar_checkpoint("decode-dimensions",out.width,static_cast<size_t>(out.height));
         }
         if(out.rgba.empty()){++state->decode_failures;out.failure="Image decoding failed";cache.erase(key);}
-        else if(!local_asset && !disk_hit && !cache.put(key,reply.body)){++state->write_failures;if(avatar_image)avatar_checkpoint("disk-write-failed",0,reply.body.size());}
+        else if(!stop->load() && !local_asset && !disk_hit && !cache.put(key,reply.body)){++state->write_failures;if(avatar_image)avatar_checkpoint("disk-write-failed",0,reply.body.size());}
         if(avatar_image)state->avatar_bytes=cache.usage();else state->bytes=cache.usage();
         if(avatar_image)fprintf(stderr,"avatar: request=%u stage=decode result=%s bytes=%zu\n",out.request_id,out.rgba.empty()?"failed":"ready",out.rgba.size());
         if(avatar_image)avatar_checkpoint(disk_hit?"disk-hit":"disk-miss",0,out.rgba.size());
@@ -279,5 +283,16 @@ void Artwork::clear() {
     // Keep its descriptor/image alive until the next update, after submission.
     for(auto &entry:entries)if(entry.texture)retired.push_back(entry.texture);
     entries.clear();
+}
+void Artwork::close() {
+    if(closed)return;
+    closed=true;stopping->store(true);
+    // Never call update(): shutdown must not schedule cache maintenance or
+    // upload images. The texture manager retains GPU ownership until idle.
+    if(pending.valid())pending.get();
+    if(media_pending.valid())media_pending.get();
+    if(avatar_pending.valid())avatar_pending.get();
+    ready.reset();clear_target.reset();trim_disk_pending=false;
+    entries.clear();retired.clear();gpu_bytes=0;
 }
 } // namespace plex

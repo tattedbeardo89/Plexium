@@ -376,7 +376,12 @@ Runtime::Runtime(std::unique_ptr<Session>s):session(std::move(s)){
  worker_error=worker.start([](void *self)->void*{static_cast<Runtime*>(self)->run();return nullptr;},this);
  if(worker_error)model.message="Session worker could not start";
 }
-Runtime::~Runtime(){{std::lock_guard<std::mutex> l(mutex);closing=true;queue.clear();}cv.notify_all();worker.join();}
+Runtime::~Runtime(){close();}
+void Runtime::close(){
+ {std::lock_guard<std::mutex> l(mutex);closing=true;++generation;queue.clear();}
+ cv.notify_all();worker.join();
+ {std::lock_guard<std::mutex> l(mutex);model=Model{};context={};}
+}
 bool Runtime::send(Command command){
  std::lock_guard<std::mutex> l(mutex);
  if(closing || worker_error)return false;

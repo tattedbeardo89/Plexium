@@ -38,6 +38,9 @@ extern Gfx gfx;
 bool gfx_init();
 // False: driver completion failed; leave dependent allocations to process exit.
 bool gfx_shutdown();
+// Only after successful gfx_shutdown and client/backend destruction. Idempotent
+// and safe for partially initialized state; never call after uncertain GPU work.
+void gfx_destroy();
 /* Waits for this slot's previous frame, acquires an image, begins the command
  * buffer (outside the render pass: record uploads first). Null if the frame
  * must be skipped. */

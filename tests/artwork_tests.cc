@@ -43,5 +43,14 @@ int main(){
  TEST_REQUIRE(uploads==1 && artwork.get("https://fixture","profile","/new")==1);
  TEST_REQUIRE(requests==4);
  artwork.clear();artwork.update();TEST_REQUIRE(frees==1);
+ artwork.close();artwork.close();artwork.update();
+ TEST_REQUIRE(!artwork.busy() && !artwork.get("https://fixture","profile","/closed") && requests==4);
+ // Closing active jobs cooperates at the network boundary, joins all lanes,
+ // discards their results and performs no renderer calls.
+ std::atomic<bool> entered{false},finish{false};
+ plex::Artwork closing([&](const plex::Request&){entered=true;until([&]{return finish.load();});return plex::Reply{200,"",""};});
+ closing.get("https://fixture","profile","/pending");until([&]{return entered.load();});
+ auto release_thread=std::thread([&]{finish=true;});closing.close();release_thread.join();
+ TEST_REQUIRE(!closing.busy() && uploads==1 && frees==1);
  puts("PASS: production artwork three-lane bound, async fetch/decode, stale-profile discard, render-thread upload and retirement");
 }

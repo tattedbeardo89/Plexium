@@ -48,13 +48,15 @@ struct Application {
  plexium::Model model;
  plexium::MediaContext access;
  std::string art_scope;
- ~Application(){player.close();}
+ ~Application(){player.close();runtime.close();artwork.close();}
 };
 unsigned buttons(uint32_t p){using namespace plexium;unsigned out=0;const uint32_t raw[]={PAD_UP,PAD_DOWN,PAD_LEFT,PAD_RIGHT,PAD_CROSS,PAD_CIRCLE,PAD_L1,PAD_R1,PAD_OPTIONS,PAD_TRIANGLE};for(unsigned i=0;i<10;++i)if(p&raw[i])out|=1u<<i;return out;}
 #endif
 }
 static void startup(const char *phase){std::fprintf(stderr,"Plexium startup: %s\n",phase);std::fflush(stderr);}
 namespace {
+VkResult ui_first_error=VK_SUCCESS;
+void ui_result(VkResult result){if(result!=VK_SUCCESS && ui_first_error==VK_SUCCESS){ui_first_error=result;std::fprintf(stderr,"Plexium UI: first Vulkan error=%d\n",int(result));}}
 // GPU completion must be established before destroying descriptors. A failed
 // frame leaves uncertain driver allocations to process teardown.
 struct NativeLifetime {
@@ -64,6 +66,8 @@ struct NativeLifetime {
   if(player){startup("stopping player");player_shutdown();}
   if(!gpu_failed && graphics && !gfx_shutdown())gpu_failed=true;
   if(!gpu_failed && backend){textures_shutdown();ImGui_ImplVulkan_Shutdown();}
+  if(!gpu_failed && graphics && !player)gfx_destroy();
+  if(!gpu_failed && player)startup("full-client video allocations retained until process exit");
   if(gpu_failed)startup("graphics failure: retaining uncertain GPU allocations and backend context until exit");
   // ImGui asserts if its renderer backend is still attached. Do not invoke
   // backend destruction after uncertain GPU completion just to clear that flag.
@@ -80,6 +84,7 @@ bool exit_requested(const PadState &pad,double now,double &since){
 }
 }
 __attribute__((noinline)) static int run_native(){
+ ui_first_error=VK_SUCCESS;
  NativeLifetime lifetime;
  plat_init();startup("platform ready");lifetime.graphics=true;
  if(!gfx_init())return lifetime.finish(1);startup("graphics ready");
@@ -87,6 +92,7 @@ __attribute__((noinline)) static int run_native(){
  std::string font=std::string(plat_data_dir())+"/fonts/Inter-Regular.ttf";if(FILE *file=std::fopen(font.c_str(),"rb")){std::fclose(file);io.Fonts->AddFontFromFileTTF(font.c_str(),32);}
  else {startup("font unavailable: using built-in font");io.Fonts->AddFontDefault();}
  ImGui_ImplVulkan_InitInfo init{};init.ApiVersion=VK_API_VERSION_1_1;init.Instance=gfx.instance;init.PhysicalDevice=gfx.gpu;init.Device=gfx.device;init.QueueFamily=gfx.queue_family;init.Queue=gfx.queue;init.DescriptorPoolSize=2048;init.MinImageCount=2;init.ImageCount=std::max(2u,gfx.image_count);init.PipelineInfoMain.RenderPass=gfx.render_pass;init.PipelineInfoMain.MSAASamples=VK_SAMPLE_COUNT_1_BIT;
+ init.CheckVkResultFn=ui_result;
  if(!ImGui_ImplVulkan_Init(&init))return lifetime.finish(2);
  lifetime.backend=true;
  startup("UI ready");
@@ -145,9 +151,6 @@ __attribute__((noinline)) static int run_native(){
   ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(),cmd);if(!gfx_end_frame(cmd)){lifetime.gpu_failed=true;application.reset();return lifetime.finish(4);}
   if(gfx.frame_number==3)plat_hide_splash();
  }
- artwork.clear();
- // clear retires textures; release them only with established frame completion.
- if(!lifetime.gpu_failed)artwork.update();
  application.reset();return lifetime.finish(0);
 #endif
 }

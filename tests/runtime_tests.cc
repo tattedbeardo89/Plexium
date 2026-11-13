@@ -45,6 +45,9 @@ int main(){
   reusable.profiles[0].name="local-only";access.account_token.clear();
   runtime.snapshot_into(reusable,access);
   TEST_REQUIRE(reusable.profiles[0].name=="Owner"&&access.account_token=="fixture-account");
+  runtime.close();runtime.close();TEST_REQUIRE(!runtime.ready());
+  TEST_REQUIRE(!runtime.send({Action::Restore,{},{}}));
+  TEST_REQUIRE(runtime.media_context().account_token.empty() && runtime.snapshot().profiles.empty());
  }
  std::filesystem::remove_all(root);std::cout<<"PASS: render-thread nonblocking dispatch, cancellation generation, stale result rejection, joined worker cleanup\n";
 }

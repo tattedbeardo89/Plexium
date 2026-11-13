@@ -34,6 +34,8 @@ class Artwork {
     std::string disk_scope;
     struct Stats {std::atomic<size_t> bytes{0},avatar_bytes{0},hits{0},misses{0},gpu_hits{0},gpu_misses{0},downloads{0},decode_failures{0},evictions{0},write_failures{0},upload_failures{0};};
     std::shared_ptr<Stats> stats=std::make_shared<Stats>();
+    std::shared_ptr<std::atomic<bool>> stopping=std::make_shared<std::atomic<bool>>(false);
+    bool closed=false;
     std::optional<DiskCache> clear_target;
     bool trim_disk_pending=false;
     uint64_t maintenance_retry=0;
@@ -47,6 +49,10 @@ class Artwork {
 
   public:
     explicit Artwork(Transport t) : transport(std::move(t)) {}
+    ~Artwork(){close();}
+    // Render-thread owner closes before renderer teardown. Network requests
+    // finish within their adapter timeouts; cancellation is cooperative.
+    void close();
     bool busy() const {return pending.valid() || media_pending.valid() || avatar_pending.valid() || ready.has_value();}
     size_t cached() const {return entries.size();}
     float aspect(ImTextureID texture) const {

@@ -76,7 +76,7 @@ struct Hdr {
     VkImage ui_image, image;
     VkDeviceMemory ui_memory, memory;
     VkImageView ui_view, view;
-    VkRenderPass ui_pass;
+    VkRenderPass ui_pass, output_pass;
     VkFramebuffer ui_fb, fb;
     VkSampler sampler;
     VkDescriptorSetLayout set_layout;
@@ -115,13 +115,14 @@ bool create_instance()
     volkLoadInstance(gfx.instance);
 
     uint32_t count = 0;
-    vkEnumeratePhysicalDevices(gfx.instance, &count, nullptr);
-    if (!count) {
+    CHECK(vkEnumeratePhysicalDevices(gfx.instance, &count, nullptr));
+    if (!count || count>32) {
         fprintf(stderr, "gfx: no GPU\n");
         return false;
     }
     std::vector<VkPhysicalDevice> gpus(count);
-    vkEnumeratePhysicalDevices(gfx.instance, &count, gpus.data());
+    CHECK(vkEnumeratePhysicalDevices(gfx.instance, &count, gpus.data()));
+    if (!count || count>gpus.size()) return false;
     gfx.gpu = gpus[0];
     VkPhysicalDeviceProperties props;
     vkGetPhysicalDeviceProperties(gfx.gpu, &props);
@@ -136,15 +137,17 @@ bool create_device()
 {
     uint32_t count = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(gfx.gpu, &count, nullptr);
+    if (!count || count>64) return false;
     std::vector<VkQueueFamilyProperties> families(count);
     vkGetPhysicalDeviceQueueFamilyProperties(gfx.gpu, &count, families.data());
+    if (count>families.size()) return false;
     gfx.queue_family = UINT32_MAX;
     for (uint32_t i = 0; i < count; i++) {
         if (!(families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT))
             continue;
         if (!gfx.offscreen) {
             VkBool32 present = VK_FALSE;
-            vkGetPhysicalDeviceSurfaceSupportKHR(gfx.gpu, i, surface, &present);
+            CHECK(vkGetPhysicalDeviceSurfaceSupportKHR(gfx.gpu, i, surface, &present));
             if (!present)
                 continue;
         }
@@ -175,9 +178,12 @@ bool create_device()
 bool create_swapchain()
 {
     uint32_t count = 0;
-    vkGetPhysicalDeviceSurfaceFormatsKHR(gfx.gpu, surface, &count, nullptr);
+    CHECK(vkGetPhysicalDeviceSurfaceFormatsKHR(gfx.gpu, surface, &count, nullptr));
+    if (!count || count>256) return false;
     std::vector<VkSurfaceFormatKHR> formats(count);
-    vkGetPhysicalDeviceSurfaceFormatsKHR(gfx.gpu, surface, &count, formats.data());
+    CHECK(vkGetPhysicalDeviceSurfaceFormatsKHR(gfx.gpu, surface, &count, formats.data()));
+    if (!count || count>formats.size()) return false;
+    formats.resize(count);
     /* UNORM: the UI's colours and the video shader's output are already
      * gamma-encoded, as on a desktop compositor. */
     VkSurfaceFormatKHR chosen = formats.empty() ? VkSurfaceFormatKHR{} : formats[0];
@@ -189,12 +195,15 @@ bool create_swapchain()
                 break;
         }
     gfx.format = chosen.format;
-    VkSurfaceCapabilitiesKHR caps;
-    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(gfx.gpu, surface, &caps);
+    VkSurfaceCapabilitiesKHR caps{};
+    CHECK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(gfx.gpu, surface, &caps));
+    if (!caps.supportedCompositeAlpha || !caps.minImageCount || caps.minImageCount>16 ||
+        (caps.maxImageCount && caps.maxImageCount<caps.minImageCount)) return false;
     if (caps.currentExtent.width != UINT32_MAX) {
         gfx.width = caps.currentExtent.width;
         gfx.height = caps.currentExtent.height;
     }
+    if (!gfx.width || !gfx.height || gfx.width>8192 || gfx.height>8192) return false;
     uint32_t want = caps.minImageCount < 3 ? 3 : caps.minImageCount;
     if (caps.maxImageCount && want > caps.maxImageCount)
         want = caps.maxImageCount;
@@ -211,13 +220,16 @@ bool create_swapchain()
     info.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
     info.compositeAlpha = (caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR)
                               ? VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR
-                              : (VkCompositeAlphaFlagBitsKHR)caps.supportedCompositeAlpha;
+                              : (VkCompositeAlphaFlagBitsKHR)(caps.supportedCompositeAlpha & (~caps.supportedCompositeAlpha+1u));
     info.presentMode = VK_PRESENT_MODE_FIFO_KHR;
     info.clipped = VK_TRUE;
     CHECK(vkCreateSwapchainKHR(gfx.device, &info, nullptr, &swapchain));
-    vkGetSwapchainImagesKHR(gfx.device, swapchain, &count, nullptr);
+    CHECK(vkGetSwapchainImagesKHR(gfx.device, swapchain, &count, nullptr));
+    if (!count || count>16) return false;
     images.resize(count);
-    vkGetSwapchainImagesKHR(gfx.device, swapchain, &count, images.data());
+    CHECK(vkGetSwapchainImagesKHR(gfx.device, swapchain, &count, images.data()));
+    if (!count || count>images.size()) return false;
+    images.resize(count);
     gfx.image_count = count;
     fprintf(stderr, "gfx: swapchain %ux%u, format %d, %u images, FIFO\n", gfx.width, gfx.height,
             gfx.format, count);
@@ -412,9 +424,9 @@ bool create_hdr()
     if (!make_pass(gfx.format, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                    VK_ACCESS_SHADER_READ_BIT, &hdr.ui_pass) ||
         !make_pass(HDR_FORMAT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                   VK_ACCESS_TRANSFER_READ_BIT, &gfx.hdr_pass) ||
+                   VK_ACCESS_TRANSFER_READ_BIT, &hdr.output_pass) ||
         !make_framebuffer(hdr.ui_pass, hdr.ui_view, &hdr.ui_fb) ||
-        !make_framebuffer(gfx.hdr_pass, hdr.view, &hdr.fb))
+        !make_framebuffer(hdr.output_pass, hdr.view, &hdr.fb))
         return false;
 
     VkSamplerCreateInfo si = { VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
@@ -459,6 +471,11 @@ bool create_hdr()
     CHECK(vkCreatePipelineLayout(gfx.device, &pl, nullptr, &hdr.layout));
     VkShaderModule vs = gfx_shader(spv_fullscreen_vert, sizeof(spv_fullscreen_vert));
     VkShaderModule fs = gfx_shader(spv_ui_pq_frag, sizeof(spv_ui_pq_frag));
+    if(!vs || !fs){
+        if(vs)vkDestroyShaderModule(gfx.device,vs,nullptr);
+        if(fs)vkDestroyShaderModule(gfx.device,fs,nullptr);
+        return false;
+    }
     VkPipelineShaderStageCreateInfo stages[2] = {};
     stages[0] = { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };
     stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
@@ -508,7 +525,7 @@ bool create_hdr()
     gp.pColorBlendState = &cb;
     gp.pDynamicState = &ds;
     gp.layout = hdr.layout;
-    gp.renderPass = gfx.hdr_pass;
+    gp.renderPass = hdr.output_pass;
     VkResult r = vkCreateGraphicsPipelines(gfx.device, VK_NULL_HANDLE, 1, &gp, nullptr, &hdr.pipeline);
     vkDestroyShaderModule(gfx.device, vs, nullptr);
     vkDestroyShaderModule(gfx.device, fs, nullptr);
@@ -597,7 +614,7 @@ bool gfx_init()
     if (!create_hdr()) {
         fprintf(stderr, "gfx: no HDR10 output (its targets couldn't be made)\n");
         gfx.hdr_pass = VK_NULL_HANDLE;
-    }
+    } else gfx.hdr_pass=hdr.output_pass;
     gfx.display_range = vlcps5_wsi_videoout_dynamic_range ? vlcps5_wsi_videoout_dynamic_range() : -1;
     fprintf(stderr, "gfx: output %s, HDR10 output %s\n",
             gfx.display_range == 2 ? "HDR" : gfx.display_range == 1 ? "SDR" : "unknown",
@@ -674,6 +691,45 @@ bool gfx_shutdown()
 {
     if (!gfx.device) return true;
     return frame_result(vkDeviceWaitIdle(gfx.device), "shutdown device wait");
+}
+
+void gfx_destroy()
+{
+    // The owner has already stopped workers/player, established device idle,
+    // and destroyed texture/ImGui resources. Swapchain images belong to WSI.
+    if (gfx.device) {
+        if (hdr.pipeline) vkDestroyPipeline(gfx.device,hdr.pipeline,nullptr);
+        if (hdr.layout) vkDestroyPipelineLayout(gfx.device,hdr.layout,nullptr);
+        if (hdr.pool) vkDestroyDescriptorPool(gfx.device,hdr.pool,nullptr);
+        if (hdr.set_layout) vkDestroyDescriptorSetLayout(gfx.device,hdr.set_layout,nullptr);
+        if (hdr.sampler) vkDestroySampler(gfx.device,hdr.sampler,nullptr);
+        for (auto fb:{hdr.ui_fb,hdr.fb}) if(fb) vkDestroyFramebuffer(gfx.device,fb,nullptr);
+        for (auto fb:framebuffers) if(fb) vkDestroyFramebuffer(gfx.device,fb,nullptr);
+        for (auto view:{hdr.ui_view,hdr.view}) if(view) vkDestroyImageView(gfx.device,view,nullptr);
+        for (auto view:views) if(view) vkDestroyImageView(gfx.device,view,nullptr);
+        for (auto image:{hdr.ui_image,hdr.image}) if(image) vkDestroyImage(gfx.device,image,nullptr);
+        if (gfx.offscreen) for(auto image:images) if(image) vkDestroyImage(gfx.device,image,nullptr);
+        if (readback_mapped) vkUnmapMemory(gfx.device,readback_memory);
+        if (readback) vkDestroyBuffer(gfx.device,readback,nullptr);
+        for (auto memory:{hdr.ui_memory,hdr.memory,offscreen_memory,readback_memory}) if(memory) vkFreeMemory(gfx.device,memory,nullptr);
+        for (auto pass:{gfx.render_pass,hdr.ui_pass,hdr.output_pass}) if(pass) vkDestroyRenderPass(gfx.device,pass,nullptr);
+        for (auto &f:frames) {
+            if(f.pool) vkDestroyCommandPool(gfx.device,f.pool,nullptr);
+            if(f.fence) vkDestroyFence(gfx.device,f.fence,nullptr);
+            if(f.acquired) vkDestroySemaphore(gfx.device,f.acquired,nullptr);
+        }
+        if(setup_pool) vkDestroyCommandPool(gfx.device,setup_pool,nullptr);
+        for(auto semaphore:rendered) if(semaphore) vkDestroySemaphore(gfx.device,semaphore,nullptr);
+        if(swapchain) vkDestroySwapchainKHR(gfx.device,swapchain,nullptr);
+        vkDestroyDevice(gfx.device,nullptr);
+    }
+    if(surface && gfx.instance) vkDestroySurfaceKHR(gfx.instance,surface,nullptr);
+    if(gfx.instance) vkDestroyInstance(gfx.instance,nullptr);
+    gfx={};hdr={};surface=VK_NULL_HANDLE;swapchain=VK_NULL_HANDLE;
+    images.clear();views.clear();framebuffers.clear();rendered.clear();
+    for(auto &f:frames)f={};
+    setup_pool=VK_NULL_HANDLE;offscreen_memory=readback_memory=VK_NULL_HANDLE;
+    readback=VK_NULL_HANDLE;readback_mapped=nullptr;completed=0;image_index=0;pass_now=PASS_NONE;
 }
 
 VkCommandBuffer gfx_begin_frame()

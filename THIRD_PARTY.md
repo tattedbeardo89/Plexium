@@ -22,3 +22,8 @@ Plexium's original code is GPL-3.0-or-later. Selected GPL-compatible code was ad
 Jelly5 b9d45a5b2c1571ee7c220fb541f3a15a0fb8e1f4 (GPL-3.0) was inspected for design and architecture comparison. No Jelly5 source, artwork, screenshots or Jellyfin protocol implementation was imported. Original Plexium branding geometry and generated category SVGs are dedicated under CC0-1.0; bundled fonts retain their licenses.
 
 Before distributing a statically linked native binary, retain every linked dependency's notices and provide complete corresponding source for that exact build, including patches and build recipes. The application-only archive created here is not complete corresponding source for an unbuilt native binary. No Sony, Plex or VideoLAN endorsement is claimed.
+
+Local ImGui Vulkan backend changes check initialization allocations, preserve
+partial-pipeline cleanup, and unwind failed initialization without an assertion.
+They are covered by production-backend fault injection; see
+`docs/STARTUP-LIFECYCLE-REVIEW.md`. Upstream MIT attribution remains unchanged.
