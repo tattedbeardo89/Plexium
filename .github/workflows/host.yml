@@ -22,8 +22,12 @@ jobs:
         run: bash host/check.sh
       - name: Check native sources (host syntax only)
         run: VULKAN_HEADERS=/usr/include bash host/check-native-source.sh
+      - name: Native startup entry failure injection (host only)
+        run: VULKAN_HEADERS=/usr/include bash host/test-native-entry.sh
       - name: Sanitizers
-        run: SANITIZE=1 bash host/check.sh
+        run: |
+          SANITIZE=1 bash host/check.sh
+          VULKAN_HEADERS=/usr/include SANITIZE=1 bash host/test-native-entry.sh
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:

@@ -16,6 +16,7 @@
 #include <atomic>
 
 #include "platform.h"
+#include "runtime/paths.h"
 
 namespace {
 
@@ -24,7 +25,12 @@ bool loaded, existed;
 
 std::string path()
 {
+#ifdef PLEX_PS5
+    plex_private_directory(PLEX_STATE_ROOT);
+    return std::string(PLEX_STATE_ROOT)+"/prefs.txt";
+#else
     return std::string(plat_data_dir()) + "/prefs.txt";
+#endif
 }
 
 void load()

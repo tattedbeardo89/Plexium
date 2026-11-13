@@ -5,6 +5,7 @@
 #include <cassert>
 static VkResult wait_result, begin_result, submit_result, present_result;
 static int waits, resets, submits, presents;
+static VKAPI_ATTR VkResult VKAPI_CALL idle_mock(VkDevice){return wait_result;}
 static VKAPI_ATTR VkResult VKAPI_CALL wait_mock(VkDevice,uint32_t,const VkFence*,VkBool32,uint64_t timeout){assert(timeout==frame_timeout_ns);++waits;return wait_result;}
 static VKAPI_ATTR VkResult VKAPI_CALL pool_mock(VkDevice,VkCommandPool,VkCommandPoolResetFlags){return VK_SUCCESS;}
 static VKAPI_ATTR VkResult VKAPI_CALL begin_mock(VkCommandBuffer,const VkCommandBufferBeginInfo*){return begin_result;}
@@ -25,5 +26,6 @@ int main(){
  reset_test();auto cmd=gfx_begin_frame();assert(cmd&&resets==0);submit_result=VK_ERROR_DEVICE_LOST;assert(!gfx_end_frame(cmd));assert(resets==1&&submits==1&&presents==0&&gfx.frame_number==0);assert(!gfx_begin_frame());
  reset_test();cmd=gfx_begin_frame();present_result=VK_ERROR_OUT_OF_DATE_KHR;assert(!gfx_end_frame(cmd));assert(submits==1&&presents==1);assert(!gfx_begin_frame());
  reset_test();cmd=gfx_begin_frame();assert(gfx_end_frame(cmd));assert(gfx.frame_number==1&&resets==1&&submits==1&&presents==1);
+ reset_test();gfx.device=reinterpret_cast<VkDevice>(uintptr_t(1));vkDeviceWaitIdle=idle_mock;wait_result=VK_ERROR_DEVICE_LOST;assert(!gfx_shutdown());wait_result=VK_SUCCESS;assert(gfx_shutdown());
  puts("PASS: real frame loop stops on timeout/device loss/submit/present errors; success advances once");
 }

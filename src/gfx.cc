@@ -670,10 +670,10 @@ void gfx_draw_ui_layer(VkCommandBuffer cmd)
     vkCmdDraw(cmd, 3, 1, 0, 0);
 }
 
-void gfx_shutdown()
+bool gfx_shutdown()
 {
-    if (gfx.device)
-        vkDeviceWaitIdle(gfx.device);
+    if (!gfx.device) return true;
+    return frame_result(vkDeviceWaitIdle(gfx.device), "shutdown device wait");
 }
 
 VkCommandBuffer gfx_begin_frame()

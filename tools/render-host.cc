@@ -54,6 +54,19 @@ int main(int argc,char **argv){
  m.screen=Screen::Profiles;m.profiles={{"1","","Fixture owner","",false,true,false},{"2","","Fixture child","",true,false,true}};frame("profiles",m);
  Model recommended=m;recommended.screen=Screen::Library;recommended.navigation=navigation({section});recommended.library_id="1";recommended.library_type="movie";recommended.library_title="Fixture Movies";recommended.library_tab="recommended";recommended.rails={{"popular","Recommended for you",false,{item,item,item}}};frame("recommended",recommended);
  Model music=recommended;music.library_type="artist";music.library_title="Fixture Music";auto album=item;album.type="album";album.title="Fixture album";album.artist="Fixture artist";music.rails={{"albums","Recently Added Albums",false,{album,album}}};frame("music",music);
+ Model guide_model;guide_model.screen=Screen::Guide;guide_model.server_name="Fixture server";guide_model.profile_name="Fixture profile";
+ guide_model.guide.begins=1794484800;guide_model.guide.ends=1794492000;guide_model.guide.total=8;guide_model.guide.configured=true;
+ for(int i=0;i<6;++i){plex::GuideChannel channel;channel.id=std::to_string(i);channel.number=std::to_string(i+1);channel.title="Fixture channel";channel.programs={{"Fixture current program","Episode title","Plex-supplied fixture description",1794483900,1794488400},{"Fixture upcoming program","","",1794488400,1794492000}};guide_model.guide.channels.push_back(channel);}
+ frame("guide",guide_model);
+ View guide_view;
+ auto guide_input=[&](unsigned keys){ImGui::NewFrame();auto action=guide_view.frame(guide_model,keys,.016f);ImGui::Render();return action;};
+ assert(guide_input(Cross)->action==Action::TuneChannel);
+ assert(guide_input(Triangle)->id=="now"&&guide_input(R1)->id=="later"&&guide_input(L1)->id=="earlier");
+ for(int i=0;i<5;++i)guide_input(Down);assert(guide_input(Down)->id=="next");
+ guide_model.guide.offset=6;assert(guide_input(Up)->id=="previous");
+ guide_model.guide.channels.clear();assert(!guide_input(Cross));assert(guide_input(Options)->id=="refresh");
+ io.DisplaySize={3840,2160};guide_input(0);assert(ImGui::GetDrawData()->TotalVtxCount>0);io.DisplaySize={1280,720};
+ std::cout<<"PASS: actual native guide draw lists, six-channel page, page boundaries, time navigation, Jump to Now, empty guide and 4K layout\n";
  // Input behavior is exercised against the same view, including initial draw and focus movement.
  View view;Model blank;ImGui::NewFrame();auto result=view.frame(blank,Cross,1.f/60);ImGui::Render();if(!result||result->action!=Action::Link)return 3;
 
@@ -79,6 +92,6 @@ int main(int argc,char **argv){
  rich_frame(0);assert(posters&&backgrounds);rich_frame(Right);rich_frame(Right);rich_frame(Cross);assert(cast_images>=2);
  std::cout<<"PASS: video controls auto-hide/wake/pause, native avatar callback, detail poster/backdrop and multiple cast portraits\n";
  auto begin=std::chrono::steady_clock::now();for(int i=0;i<100;++i){ImGui::NewFrame();view.frame(m,0,1.f/60);ImGui::Render();}
- std::cout<<"PASS: 6 shared-native rendered frames; Cross activates sign-in; 100 frame construction iterations in "<<std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-begin).count()<<" ms (host only)\n";
+ std::cout<<"PASS: 7 shared-native rendered frames; Cross activates sign-in; 100 frame construction iterations in "<<std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-begin).count()<<" ms (host only)\n";
  ImGui::DestroyContext();
 }

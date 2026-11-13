@@ -18,10 +18,19 @@ int main(){
  assert(poster(episode)=="/show-poster");assert(episode.id=="44");
  plex::Item movie;movie.type="movie";movie.id="1";movie.title="Film";movie.released="2026-10-01";movie.section_id="1";movie.offset=12000;movie.duration=90000;
  std::string root="/tmp/plexium-test-"+std::to_string(getpid());std::filesystem::create_directory(root);chmod(root.c_str(),0700);
- Player player;int requests=0;std::string last_timeline;bool switch_failure=false;
+ Player player;int requests=0;std::string last_timeline;bool switch_failure=false;int dvr_mode=0;
  auto transport=[&](const plex::Request&q){
   ++requests;assert(q.headers.at("X-Plex-Product")=="Plexium");
   auto reply=[](const plex::Json&j){return plex::Reply{200,j.dump(),""};};
+  if(q.url.find("/livetv/dvrs")!=std::string::npos){
+   assert(q.headers.at("X-Plex-Token")=="server-token");
+   if(dvr_mode==2)return plex::Reply{403,"{}",""};
+   if(dvr_mode==0)return reply({{"MediaContainer",{{"size",0}}}});
+   return reply(plex::Json::parse(R"({"MediaContainer":{"Dvr":[{"key":"12"}]}})"));
+  }
+  if(q.url.find("/media/providers")!=std::string::npos)return reply(plex::Json::parse(R"({"MediaContainer":{"MediaProvider":[{"identifier":"tv.plex.providers.epg.xmltv:12"}]}})"));
+  if(q.url.find("/lineups/dvr/channels")!=std::string::npos)return reply(plex::Json::parse(R"({"MediaContainer":{"Channel":[{"id":"channel10","gridKey":"grid10","vcn":"10","title":"Fixture 10"},{"id":"channel2","gridKey":"grid2","vcn":"2","title":"Fixture 2"}]}})"));
+  if(q.url.find("/grid?")!=std::string::npos)return reply({{"MediaContainer",{{"Metadata",plex::Json::array()}}}});
   if(q.url.find("/:/timeline")!=std::string::npos){last_timeline=q.url;return reply({});}
   if(q.url.find("/api/v2/pins")!=std::string::npos)return reply({{"id",1},{"code","ABCD"},{"expiresIn",100}});
   if(q.url.find("/api/home/users/")!=std::string::npos){if(switch_failure)return plex::Reply{403,"{}",""};return reply({{"id",1},{"authenticationToken","profile-token"}});}
@@ -51,10 +60,16 @@ int main(){
  Session session(transport,root,player);
  std::vector<std::pair<int,size_t>> partials;session.progress=[&](const Model& value){if(value.screen==Screen::Home&&!value.rails.empty())partials.push_back({requests,value.rails.size()});};
  auto m=session.dispatch({Action::Restore,{},{}});assert(m.screen==Screen::Profiles&&m.profiles.size()==2);
- m=session.dispatch({Action::Profile,"1",{}});assert(m.screen==Screen::Home);assert(m.sections.size()==1);assert(m.navigation[2].id=="library:1");
+ m=session.dispatch({Action::Profile,"1",{}});assert(m.screen==Screen::Home);assert(m.sections.size()==1);assert(m.navigation[2].id=="live-tv"&&m.navigation[3].id=="library:1");
  assert(!m.rails.empty());assert(m.rails.front().id=="continueWatching");assert(!partials.empty()&&partials.front().first<requests);assert(session.media_context().account_token=="account-token");
  std::set<std::string> seen;size_t last=0;for(auto&r:m.rails){assert(seen.insert(r.id).second);auto order=plex::home_order();size_t at=std::find(order.begin(),order.end(),r.id)-order.begin();assert(at>=last);last=at;}
- int before=requests;m=session.dispatch({Action::Home,{},{}});assert(requests==before);
+ int before=requests;
+ m=session.dispatch({Action::LiveTV,{},{}});assert(m.screen==Screen::Guide&&!m.guide.configured&&m.message.find("Plex Web")!=std::string::npos&&requests==before+1);
+ dvr_mode=1;m=session.dispatch({Action::LiveTV,{},"refresh"});assert(m.guide.configured&&m.guide.total==2&&m.guide.channels.front().number=="2");
+ before=requests;auto opened=player.opened;m=session.dispatch({Action::TuneChannel,"channel2",{}});assert(requests==before&&player.opened==opened&&!m.message.empty());
+ auto begins=m.guide.begins;m=session.dispatch({Action::GuidePage,"later",{}});assert(m.guide.begins==begins+3600);
+ dvr_mode=2;m=session.dispatch({Action::LiveTV,{},"refresh"});assert(m.screen==Screen::Guide&&m.guide.channels.empty()&&m.message.find("403")!=std::string::npos);
+ before=requests;m=session.dispatch({Action::Home,{},{}});assert(requests==before);
  m=session.dispatch({Action::Library,"1",{}});assert(m.screen==Screen::Library&&m.library_tab=="recommended"&&!m.rails.empty());
  before=requests;m=session.dispatch({Action::Library,"1",{}});assert(requests==before);
  m=session.dispatch({Action::Library,"1","all"});assert(m.entries.size()==60&&m.total==3700&&m.page_start==0);
@@ -85,7 +100,7 @@ int main(){
  plex::Item track;track.type="track";track.parent_thumb="/album-cover";assert(plex::image_candidates(track).front()=="/album-cover");
  assert(plex::image_candidates(episode).front()=="/show-poster");
  m=session.dispatch({Action::Profile,"2",{}});assert(m.screen==Screen::Pin);
- switch_failure=true;m=session.dispatch({Action::Profile,"2","1234"});assert(m.screen==Screen::Profiles);assert(m.sections.empty()&&m.rails.empty()&&m.entries.empty()&&m.navigation.empty());
+ switch_failure=true;m=session.dispatch({Action::Profile,"2","1234"});assert(m.screen==Screen::Profiles);assert(m.sections.empty()&&m.rails.empty()&&m.entries.empty()&&m.navigation.empty()&&m.guide.channels.empty());
  m=session.dispatch({Action::SignOut,{},{}});assert(m.screen==Screen::Welcome);assert(!std::filesystem::exists(root+"/account.json"));
  struct stat st{};assert(stat((root+"/device.json").c_str(),&st)==0);assert((st.st_mode&0777)==0600);
  std::filesystem::remove_all(root);

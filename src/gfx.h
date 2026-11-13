@@ -36,7 +36,8 @@ struct Gfx {
 extern Gfx gfx;
 
 bool gfx_init();
-void gfx_shutdown();
+// False: driver completion failed; leave dependent allocations to process exit.
+bool gfx_shutdown();
 /* Waits for this slot's previous frame, acquires an image, begins the command
  * buffer (outside the render pass: record uploads first). Null if the frame
  * must be skipped. */

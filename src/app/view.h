@@ -4,7 +4,7 @@
 #include "imgui.h"
 #include <optional>
 namespace plexium {
-enum Button { Up=1,Down=2,Left=4,Right=8,Cross=16,Circle=32,L1=64,R1=128,Options=256 };
+enum Button { Up=1,Down=2,Left=4,Right=8,Cross=16,Circle=32,L1=64,R1=128,Options=256,Triangle=512 };
 struct Canvas;
 class View {
  Screen previous=Screen::Welcome;
@@ -18,6 +18,8 @@ class View {
  std::string listing_focus;
  int detail_panel=3;
  float detail_scroll=0;
+ int guide_row=0,guide_program=0;
+ std::optional<Command> guide_frame(const Model&,unsigned,Canvas&);
  std::optional<Command> details_frame(const Model&,unsigned,Canvas&);
  public:
  std::function<ImTextureID(const plex::Item&,bool)> image;

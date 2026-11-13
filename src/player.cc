@@ -1811,6 +1811,7 @@ bool player_init()
     fprintf(stderr, "player: libvlc_media_player_new\n");
     libvlc_set_user_agent(vlc, "VLC media player", "VLC/3.0.24 PS5");
     mp = libvlc_media_player_new(vlc);
+    if (!mp) { fprintf(stderr, "player: media player allocation failed\n"); return false; }
     fprintf(stderr, "player: callbacks\n");
     libvlc_video_set_callbacks(mp, vmem_lock, vmem_unlock, vmem_display, nullptr);
     libvlc_video_set_format_callbacks(mp, vmem_setup, vmem_cleanup);

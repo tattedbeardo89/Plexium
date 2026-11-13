@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "session.h"
+#include "runtime/state.h"
 #include "browse.h"
 #include "plex/navigation.h"
 #include "plex/audio.h"
@@ -11,7 +12,7 @@
 #include <unistd.h>
 namespace plexium {
 std::vector<Destination> navigation(const std::vector<plex::Item>& sections) {
- std::vector<Destination> out={{"home","Home"},{"search","Search"}};
+ std::vector<Destination> out={{"home","Home"},{"search","Search"},{"live-tv","Live TV"}};
  std::set<std::string> seen;
  for(const auto &s:sections) if(!s.id.empty() && seen.insert(s.id).second)out.push_back({"library:"+s.id,s.title});
  out.push_back({"free-tv","Free Live TV (Beta)"});out.push_back({"profiles","Switch profile"});out.push_back({"servers","Change server"});out.push_back({"settings","Settings"});return out;
@@ -27,10 +28,13 @@ bool Session::private_root(){
  struct stat s{};
  if(mkdir(root.c_str(),0700)!=0 && errno!=EEXIST)return false;
  if(lstat(root.c_str(),&s)!=0 || !S_ISDIR(s.st_mode) || s.st_uid!=geteuid() || (s.st_mode&077))return false;
+#ifdef PLEX_PS5
+ if(root==PLEX_STATE_ROOT && !migrate_state(PLEX_LEGACY_STATE_ROOT,root))return false;
+#endif
  return true;
 }
 void Session::clear_context(){
- player.stop();active.clear();base.clear();token.clear();server_id.clear();resources.clear();history.clear();cached_home.clear();pages.clear();metadata.clear();channels.clear();live_parts.clear();channels_loaded=0;home_loaded=0;
+ player.stop();active.clear();base.clear();token.clear();server_id.clear();resources.clear();history.clear();cached_home.clear();pages.clear();metadata.clear();channels.clear();live_parts.clear();channels_loaded=0;personal_channels=plex::Json::array();personal_loaded=0;model.guide={};home_loaded=0;
  model.sections.clear();model.entries.clear();model.rails.clear();model.navigation.clear();model.detail={};model.detail_rails.clear();model.library_id.clear();model.library_path.clear();model.server_name.clear();model.servers.clear();
 }
 bool Session::profiles(){
@@ -53,7 +57,7 @@ bool Session::discover(){
 bool Session::connect(const std::string&id){
  auto found=std::find_if(resources.begin(),resources.end(),[&](const auto&s){return s.id==id;});
  if(found==resources.end()){fail("Unknown server selection");return false;}
- base.clear();token.clear();server_id.clear();history.clear();cached_home.clear();pages.clear();metadata.clear();channels.clear();live_parts.clear();channels_loaded=0;home_loaded=0;model.sections.clear();model.rails.clear();model.entries.clear();model.navigation.clear();model.detail={};model.screen=Screen::Servers;
+ base.clear();token.clear();server_id.clear();history.clear();cached_home.clear();pages.clear();metadata.clear();channels.clear();live_parts.clear();channels_loaded=0;personal_channels=plex::Json::array();personal_loaded=0;model.guide={};home_loaded=0;model.sections.clear();model.rails.clear();model.entries.clear();model.navigation.clear();model.detail={};model.screen=Screen::Servers;
  if(found->token.empty())found->token=active;
  std::string selected;
  // Secure default: never silently downgrade to HTTP, even for local discovery.
@@ -137,6 +141,46 @@ void Session::channel_page(int start){
  model.page_start=std::clamp(start,0,std::max(0,int(channels.size())-1));model.total=int(channels.size());model.entries.clear();
  for(int i=model.page_start;i<std::min(model.total,model.page_start+60);++i)model.entries.push_back(channels[i]);
 }
+bool Session::live_tv(int offset,int64_t begins,bool refresh){
+ model.screen=Screen::Guide;model.message.clear();model.guide.channels.clear();
+ if(base.empty() || token.empty()){model.guide={};fail("Select an authorized Plex server first");return false;}
+ const auto wall=int64_t(std::time(nullptr));
+ begins=std::clamp<int64_t>(begins,wall-24*3600,wall+7*24*3600);begins-=begins%1800;
+ model.guide.begins=begins;model.guide.ends=begins+7200;
+ auto bounded=client.bounded(800,1500);auto deadline=now()+8;bool guide_ok=true;
+ if(refresh || personal_loaded==0 || now()-personal_loaded>120){
+  personal_channels=plex::Json::array();model.guide.configured=false;model.guide.total=0;
+  auto response=plex::live_channels(bounded,base,token);
+  if(!response){fail("Plex Live TV discovery unavailable",response.status);return false;}
+  model.guide.configured=plex::flag(response.data,"configured");
+  auto channels=response.data.find("channels");if(channels!=response.data.end()&&channels->is_array())personal_channels=*channels;
+  std::stable_sort(personal_channels.begin(),personal_channels.end(),[](const auto&a,const auto&b){auto an=plex::channel_order(plex::text(a,"number")),bn=plex::channel_order(plex::text(b,"number"));return an==bn?plex::text(a,"title")<plex::text(b,"title"):an<bn;});
+  personal_loaded=now();
+ }
+ model.guide.total=int(personal_channels.size());
+ if(!model.guide.configured){model.message="No Live TV & DVR configuration was found on this Plex server. Set up your tuner and TV guide through Plex Web.";return true;}
+ offset=std::clamp(offset,0,std::max(0,model.guide.total-1));offset-=offset%6;model.guide.offset=offset;
+ if(progress)progress(model);
+ for(int i=offset;i<std::min(offset+6,model.guide.total);++i){
+  const auto &source=personal_channels[i];plex::GuideChannel channel;
+  channel.id=plex::text(source,"id");channel.title=plex::text(source,"title");channel.number=plex::text(source,"number");channel.thumb=plex::text(source,"thumb");
+  plex::Json programs=plex::Json::array();
+  auto first=plex::guide_date(begins),last=plex::guide_date(model.guide.ends-1);
+  for(const auto &date:std::vector<std::string>{first,first==last?"":last}){
+   if(date.empty())continue;
+   if(now()>=deadline){guide_ok=false;continue;}
+   auto response=plex::live_guide(bounded,base,token,source,date);
+   if(response){auto entries=response.data.find("programs");if(entries!=response.data.end()&&entries->is_array())for(const auto &program:*entries)if(programs.size()<200)programs.push_back(program);}
+   else {guide_ok=false;model.message="Some Plex guide information is unavailable. Options refreshes the guide.";}
+  }
+  channel.programs=plex::guide_programs(plex::Json{{"programs",std::move(programs)}},begins,model.guide.ends);
+  model.guide.channels.push_back(std::move(channel));if(progress)progress(model);
+ }
+ if(guide_ok)model.guide.refreshed=wall;
+ else if(model.message.empty())model.message="Guide loading reached its time budget. Options retries the current page.";
+ if(model.guide.total==0)model.message="Plex DVR is configured, but no accessible channels were returned.";
+ return true;
+}
 bool Session::free_tv(bool refresh){
  if(active.empty()){fail("Select a Plex profile before opening Free Live TV");return false;}
  model.screen=Screen::Library;model.library_id.clear();model.library_tab="live";model.library_type="channel";model.library_title="Plex Free Live TV · Experimental";
@@ -210,6 +254,16 @@ __attribute__((noinline)) const Model &Session::dispatch_current(const Command &
   const auto prefix="/library/sections/"+plex::encode(model.library_id)+"/";
   if(model.library_id.empty()||c.text.rfind(prefix,0)!=0||c.text.find("..")!=std::string::npos){fail("Invalid library category");break;}
   if(history.size()>=16)history.erase(history.begin());history.push_back(model);auto category=std::find_if(model.entries.begin(),model.entries.end(),[&](const auto &i){return i.key==c.text;});if(category!=model.entries.end())model.library_title+=" · "+category->title;model.library_tab="category";listing(c.text);break;}
+ case Action::LiveTV:live_tv(0,std::time(nullptr),c.text=="refresh");break;
+ case Action::GuidePage:{
+  if(model.screen!=Screen::Guide)break;
+  auto offset=model.guide.offset;auto begins=model.guide.begins;
+  if(c.id=="next")offset+=6;else if(c.id=="previous")offset-=6;
+  else if(c.id=="later")begins+=3600;else if(c.id=="earlier")begins-=3600;
+  else if(c.id=="now")begins=std::time(nullptr);
+  live_tv(offset,begins,c.id=="refresh");break;
+ }
+ case Action::TuneChannel:model.message="Personal Live TV playback is pending verified Plex session lifecycle support.";break;
  case Action::FreeTV:free_tv(c.text=="refresh");break;
  case Action::PlayLive:{
   if(now()-channels_loaded>120&&!free_tv(true))break;
@@ -290,13 +344,18 @@ __attribute__((noinline)) const Model &Session::dispatch_current(const Command &
  }
  return model;
 }
-Runtime::Runtime(std::unique_ptr<Session>s):session(std::move(s)),worker(&Runtime::run,this){}
+Runtime::Runtime(std::unique_ptr<Session>s):session(std::move(s)){
+ worker_error=worker.start([](void *self)->void*{static_cast<Runtime*>(self)->run();return nullptr;},this);
+ if(worker_error)model.message="Session worker could not start";
+}
 Runtime::~Runtime(){{std::lock_guard<std::mutex> l(mutex);closing=true;queue.clear();}cv.notify_all();worker.join();}
 bool Runtime::send(Command command){
  std::lock_guard<std::mutex> l(mutex);
+ if(closing || worker_error)return false;
+ if(command.action==Action::Tick)for(const auto &pending:queue)if(pending.second.action==Action::Tick)return false;
  if((command.action==Action::Back||command.action==Action::Stop)&&model.busy){++generation;queue.clear();}
  else if(command.action==Action::Cancel||command.action==Action::SignOut){++generation;queue.clear();model=Model{};context={};}
- else if(model.busy)return false;
+ else if(model.busy || queue.size()>=16)return false;
  if(command.action!=Action::Tick)model.busy=true;queue.push_back({generation,std::move(command)});cv.notify_one();return true;
 }
 Model Runtime::snapshot()const{std::lock_guard<std::mutex> l(mutex);return model;}

@@ -7,6 +7,7 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "platform.h"
+#include "runtime/paths.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -26,7 +27,7 @@
 #define PLEX_BUILD_COMMIT "unknown-build"
 #endif
 #define APP_DIR "/app0"
-#define LOG_PATH APP_DIR "/plexium.log"
+#define LOG_PATH PLEX_STATE_ROOT "/plexium.log"
 /* Where the eboot is loaded, and a bound on its code for backtraces. */
 #include "crash_termination.h"
 extern unsigned plex_home_last_checkpoint(void);
@@ -226,39 +227,25 @@ bool plat_full_access(void)
  * small writes to the app's folder, and the main thread's lines (the stats
  * every 5 s while playing) froze the picture for 40-150 ms on the console.
  * Lines now collect in stdio's buffer and go to the file every 200 ms. */
-static void *log_flusher(void *arg)
-{
-    (void)arg;
-    for (;;) {
-        usleep(200000);
-        fflush(stderr);
-    }
-    return NULL;
-}
-
 void plat_init(void)
 {
-    rename(LOG_PATH, APP_DIR "/plexium.old.log");
+    int state_ready=plex_private_directory(PLEX_STATE_ROOT);
+    if(state_ready)rename(LOG_PATH, PLEX_STATE_ROOT "/plexium.old.log");
     /* Append mode, like the crash report's descriptor: with "w" the lines still
      * buffered at a crash were written over the start of the report. */
     // A failed freopen closes stderr, making subsequent diagnostics undefined.
     // Open first; preserve the original stream/descriptor if the title is read-only.
-    if (plex_startup_log_open(LOG_PATH)) {
-        static char log_buffer[256 * 1024];
-        setvbuf(stderr, log_buffer, _IOFBF, sizeof(log_buffer));
-        pthread_t flusher;
-        if (pthread_create(&flusher, NULL, log_flusher, NULL) == 0)
-            pthread_detach(flusher);
-        else
-            setvbuf(stderr, NULL, _IONBF, 0);
+    if (state_ready && plex_startup_log_open(LOG_PATH)) {
+        // No detached thread or large static buffering during bootstrap.
+        setvbuf(stderr, NULL, _IONBF, 0);
         setvbuf(stdout, NULL, _IOLBF, 0);
     } else {
         fprintf(stderr, "Plexium: title log unavailable; retaining existing stderr\n");
     }
     fprintf(stderr,"start: build " PLEX_BUILD_COMMIT " pid=%d title=PPSA85421 runtime=locked-PS5_Vulkan; SIGSYS/SIGABRT tracked separately\n",(int)getpid());
     fprintf(stderr, "VLC-PS5: load address marker plat_init=%p\n", (void *)plat_init);
-    crash_fd = open(LOG_PATH, O_WRONLY | O_APPEND);
-    crash_file_fd = open(APP_DIR "/vlc-crash.txt", O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    crash_fd = state_ready ? open(LOG_PATH, O_WRONLY | O_APPEND | O_NOFOLLOW) : -1;
+    crash_file_fd = state_ready ? open(PLEX_STATE_ROOT "/crash.txt", O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0600) : -1;
 
     static uint8_t alt_stack[64 * 1024] __attribute__((aligned(16)));
     stack_t ss = { .ss_sp = alt_stack, .ss_size = sizeof(alt_stack) };
@@ -277,6 +264,7 @@ void plat_init(void)
     fprintf(stderr, "Plexium: native startup; helper requests disabled\n");
     /* Retain the original decoder initialization order, without helper or
      * sandbox changes between phases. */
+#if !PLEX_STARTUP_ONLY
     int hw_decode = boot_setting("hw_decode", 1), vdec_load = boot_setting("vdec_load", 1);
     if (!hw_decode)
         fprintf(stderr, "VLC-PS5: hardware decoding off (settings.txt): decoder library not loaded\n");
@@ -288,6 +276,10 @@ void plat_init(void)
         load_video_decoder();
     else if (vdec_ready && vlc_ps5_vdec_probe && plat_full_access())
         vlc_ps5_vdec_probe("after full access");
+#else
+    full_access = __real_geteuid() == 0;
+    fprintf(stderr, "Plexium: startup-only mode; decoder and network session disabled\n");
+#endif
     use_app_dir();
     struct stat permissions;
     // Use the resolved installation directory after sandbox lifting, and the

@@ -111,6 +111,61 @@ __attribute__((noinline)) std::optional<Command> View::details_frame(const Model
   }
  return {};
 }
+__attribute__((noinline)) std::optional<Command> View::guide_frame(const Model&m,unsigned keys,Canvas&c){
+ const auto &guide=m.guide;
+ c.text(100,155,"Live TV",50);c.text(105,220,m.server_name+" · "+m.profile_name,25,c.muted);
+ c.text(1510,75,plex::guide_time(std::time(nullptr)),32);
+ if(keys&Options)return command(Action::GuidePage,"refresh");
+ if(keys&Triangle)return command(Action::GuidePage,"now");
+ if(keys&L1)return command(Action::GuidePage,"earlier");
+ if(keys&R1)return command(Action::GuidePage,"later");
+ if(guide.channels.empty()){
+  c.wrap(105,360,m.busy?"Loading Plex guide…":guide.configured?"No accessible channels available.":"Plex Web > Settings > Live TV & DVR > Set Up Plex DVR",1600,32);
+  c.text(105,1015,"Circle  Back     Options  Refresh",24,c.muted);return {};
+ }
+ if(keys&Down){if(guide_row+1>=int(guide.channels.size())&&guide.offset+6<guide.total){guide_row=0;guide_program=0;return command(Action::GuidePage,"next");}++guide_row;}
+ if(keys&Up){if(guide_row<=0&&guide.offset>0){guide_row=5;guide_program=0;return command(Action::GuidePage,"previous");}--guide_row;}
+ guide_row=std::clamp(guide_row,0,int(guide.channels.size())-1);
+ const auto &selected=guide.channels[guide_row];
+ if(keys&Right){if(guide_program+1>=int(selected.programs.size()))return command(Action::GuidePage,"later");++guide_program;}
+ if(keys&Left){if(guide_program<=0)return command(Action::GuidePage,"earlier");--guide_program;}
+ guide_program=std::clamp(guide_program,0,std::max(0,int(selected.programs.size())-1));
+ constexpr float left=400,width=1420,top=320,height=88;
+ const auto span=std::max<int64_t>(1,guide.ends-guide.begins);
+ for(int i=0;i<=4;++i){auto at=guide.begins+i*span/4;c.text(left+i*width/4,275,plex::guide_time(at),23,c.muted);}
+ for(size_t row=0;row<guide.channels.size();++row){
+  const auto &channel=guide.channels[row];float y=top+row*height;
+  c.box(100,y,285,height-5,int(row)==guide_row?c.accent:IM_COL32(33,35,52,255));
+  float label_x=115;
+  if(image&&!channel.thumb.empty()){plex::Item logo;logo.id=channel.id;logo.type="channel";logo.thumb=channel.thumb;auto texture=image(logo,false);if(texture){c.photo(110,y+12,54,54,texture);label_x=175;}}
+  c.text(label_x,y+12,plex::utf8_prefix(channel.number+"  "+channel.title,label_x>115?17:24),23);
+  c.box(left,y,width,height-5,IM_COL32(23,25,39,255));
+  if(channel.programs.empty())c.text(left+18,y+25,"Guide information unavailable",24,c.muted);
+  c.d->PushClipRect(c.p(left,y),c.p(left+width,y+height-5),true);
+  for(size_t index=0;index<channel.programs.size();++index){
+   const auto &program=channel.programs[index];
+   float x=left+width*double(std::max(program.begins,guide.begins)-guide.begins)/span;
+   float end=left+width*double(std::min(program.ends,guide.ends)-guide.begins)/span;
+   bool focused=int(row)==guide_row&&int(index)==guide_program;
+   c.box(x+2,y,std::max(1.f,end-x-4),height-5,focused?c.accent:IM_COL32(42,44,65,255),4);
+   c.d->PushClipRect(c.p(x+5,y),c.p(std::max(x+5,end-5),y+height-5),true);
+   c.text(x+12,y+16,program.title.empty()?"Title unavailable":program.title,24);
+   c.text(x+12,y+50,plex::guide_time(program.begins)+" - "+plex::guide_time(program.ends),19,c.muted);
+   c.d->PopClipRect();
+  }
+  c.d->PopClipRect();
+ }
+ auto now=int64_t(std::time(nullptr));
+ if(now>=guide.begins&&now<guide.ends){float x=left+width*double(now-guide.begins)/span;c.d->AddLine(c.p(x,310),c.p(x,top+guide.channels.size()*height),IM_COL32(255,105,125,255),2*c.s);}
+ if(!selected.programs.empty()){
+  const auto &program=selected.programs[guide_program];
+  c.text(105,875,plex::utf8_prefix(program.title+" · "+program.series,95),26);
+  c.wrap(105,912,program.summary,1700,23);
+ }
+ c.text(105,1015,"D-pad  Browse     L1/R1  Time     Triangle  Now     Options  Refresh     Circle  Back",23,c.muted);
+ if(keys&Cross)return command(Action::TuneChannel,selected.id);
+ return {};
+}
 std::optional<Command> View::frame(const Model&m,unsigned keys,float dt){
  Canvas c;c.image=image;c.aspect=aspect;c.books=m.books;if(m.screen!=Screen::Playback)c.box(0,0,1920,1080,IM_COL32(10,11,18,255),0);
  if(m.screen!=Screen::Playback)c.d->AddRectFilledMultiColor(c.p(600,0),c.p(1920,800),IM_COL32(34,24,62,255),IM_COL32(18,30,57,255),IM_COL32(10,11,18,255),IM_COL32(10,11,18,255));
@@ -119,7 +174,7 @@ std::optional<Command> View::frame(const Model&m,unsigned keys,float dt){
  if(previous!=m.screen){focus[std::to_string(int(previous))]={row,column};auto f=focus.find(std::to_string(int(m.screen)));row=f==focus.end()?-1:f->second.first;column=f==focus.end()?0:f->second.second;sidebar=false;previous=m.screen;entry.clear();playback_idle=0;playback_controls=true;}
  if(m.screen==Screen::Library){auto identity=m.library_id+":"+m.library_tab+":"+m.library_path+":"+std::to_string(m.page_start);if(identity!=listing_focus){listing_focus=identity;row=m.library_id.empty()?0:-1;column=0;auto tabs=library_tabs(m.library_type,m.books);for(size_t i=0;i<tabs.size();++i)if(tabs[i].first==m.library_tab)column=int(i);}}
  if(m.busy&&m.screen!=Screen::Playback){c.text(1550,80,"Loading…",25,c.muted);keys&=Circle;}
- if(!m.message.empty()){c.box(420,850,1400,82,IM_COL32(60,32,48,255));c.wrap(447,865,m.message,1320,24);}
+ if(!m.message.empty()){float message_y=m.screen==Screen::Guide?945:850;c.box(420,message_y,1400,62,IM_COL32(60,32,48,255));c.wrap(447,message_y+10,m.message,1320,24);}
  if(keys&Circle){if(m.screen==Screen::Playback)return command(Action::Stop);if(m.screen==Screen::Linking)return command(Action::Cancel);return command(Action::Back);}
  switch(m.screen){
  case Screen::Welcome:
@@ -158,6 +213,7 @@ std::optional<Command> View::frame(const Model&m,unsigned keys,float dt){
   c.text(425,800,"Unofficial Plex client; not affiliated with or endorsed by Plex",22,c.muted);
   c.wrap(425,415,"Original quality · verified HTTPS · subtitles off by default.\nThis development checkpoint requires physical PS5 acceptance.",1160,28);
   c.button(425,650,350,"Sign out",true);if(keys&Cross)return command(Action::SignOut);break;
+ case Screen::Guide:return guide_frame(m,keys,c);
  case Screen::Details:return details_frame(m,keys,c);
  case Screen::Playback:{
   if(m.detail.type=="track"){
@@ -182,7 +238,7 @@ std::optional<Command> View::frame(const Model&m,unsigned keys,float dt){
   if(keys&L1){side=(side+n-1)%n;sidebar=true;}if(keys&R1){side=(side+1)%n;sidebar=true;}
   if(keys&Options)sidebar=!sidebar;
   if(sidebar){if(keys&Down)side=(side+1)%n;if(keys&Up)side=(side+n-1)%n;
-   if(keys&Cross){const auto&id=m.navigation[side].id;if(id=="home")return command(Action::Home);if(id=="search")return command(Action::Search);if(id=="free-tv")return command(Action::FreeTV);if(id=="settings")return command(Action::Settings);if(id=="profiles")return command(Action::Home,"profiles");if(id=="servers")return command(Action::Server);return command(Action::Library,id.substr(8));}
+   if(keys&Cross){const auto&id=m.navigation[side].id;if(id=="home")return command(Action::Home);if(id=="search")return command(Action::Search);if(id=="live-tv")return command(Action::LiveTV);if(id=="free-tv")return command(Action::FreeTV);if(id=="settings")return command(Action::Settings);if(id=="profiles")return command(Action::Home,"profiles");if(id=="servers")return command(Action::Server);return command(Action::Library,id.substr(8));}
    if(keys&Right)sidebar=false;
   }else {if(keys&Down){if(m.screen==Screen::Library&&row<0)column=0;++row;}if(keys&Up){--row;if(m.screen==Screen::Library&&row<0){auto tabs=library_tabs(m.library_type,m.books);column=0;for(size_t i=0;i<tabs.size();++i)if(tabs[i].first==m.library_tab)column=int(i);}}if(keys&Right)++column;if(keys&Left){if(column==0)sidebar=true;else --column;}}
   int navstart=std::max(0,side-8);for(int i=navstart;i<std::min(n,navstart+10);++i)c.button(70,200+(i-navstart)*67,285,m.navigation[i].label,sidebar&&side==i);

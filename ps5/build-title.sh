@@ -45,7 +45,9 @@ TARGET=ps5 NM="$sdk/bin/prospero-nm" APP_MODULES="vlc_entry__ps5http vlc_entry__
 #    title's exports (the converter refuses application exports).
 bash "$here/compile-shaders.sh"
 build_commit=$(git -c safe.directory="$repo" -C "$repo" rev-parse --verify HEAD 2>/dev/null || echo uncommitted)
-cflags=(-g -fno-omit-frame-pointer "-DPLEX_BUILD_COMMIT=\"$build_commit\"" -O2 -march=znver2 -Wall -Wno-unused-result -Wno-unused-function
+startup_only=${PLEX_STARTUP_ONLY:-1}
+[[ $startup_only == 0 || $startup_only == 1 ]] || { echo 'PLEX_STARTUP_ONLY must be 0 or 1' >&2; exit 2; }
+cflags=(-DPLEX_STARTUP_ONLY="$startup_only" -g -fno-omit-frame-pointer "-DPLEX_BUILD_COMMIT=\"$build_commit\"" -O2 -march=znver2 -Wall -Wno-unused-result -Wno-unused-function
     -DPLEX_PS5 -DVK_NO_PROTOTYPES -DIMGUI_IMPL_VULKAN_USE_VOLK
     -I"$repo/third_party" -I"$repo/src" -I"$repo/third_party/imgui" -I"$repo/third_party/volk" -I"$repo/third_party/stb"
     -I"$vk/.deps/native/radv-release/include" -I"$vlc_src/include" -I"$prefix/include")
@@ -184,6 +186,13 @@ mkdir -p "$app/sce_sys" "$app/sce_module" "$app/media"
 "$tool" self --sign --in "$work/eboot.elf" --out "$app/eboot.bin" --magic 0x1D3D154F
 "$tool" self --inspect --file "$app/eboot.bin" > /dev/null
 cp "$param" "$app/sce_sys/param.json"
+python3 - "$app/build-manifest.json" "$build_commit" "$startup_only" <<'PYMANIFEST'
+import json,subprocess,sys,datetime
+stamp=int(subprocess.check_output(['git','show','-s','--format=%ct','HEAD'],text=True).strip())
+with open(sys.argv[1],'w') as out:
+ json.dump({'source_commit':sys.argv[2],'title_id':'PPSA85421','startup_only':sys.argv[3]=='1','source_date':datetime.datetime.fromtimestamp(stamp,datetime.timezone.utc).isoformat(),'hardware_tested':False,'delivery':'held'},out,sort_keys=True,indent=2)
+ out.write('\n')
+PYMANIFEST
 for asset in icon0.png pic0.dds pic1.dds; do
     if [[ -f $here/sce_sys/$asset ]]; then cp "$here/sce_sys/$asset" "$app/sce_sys/$asset"
     fi

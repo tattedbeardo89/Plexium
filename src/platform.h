@@ -22,6 +22,10 @@
 extern "C" {
 #endif
 
+#ifndef PLEX_STARTUP_ONLY
+#define PLEX_STARTUP_ONLY 1
+#endif
+
 #define VLC_PS5_TITLE_ID "PPSA85421"
 #define VLC_PS5_VERSION "0.5.0"
 

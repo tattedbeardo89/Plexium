@@ -12,22 +12,39 @@ inline std::string live_provider(const std::string &id) {
     }
     return {};
 }
+inline bool live_date(const std::string &date){
+ if(date.size()!=10 || date[4]!='-' || date[7]!='-')return false;
+ for(size_t i=0;i<date.size();++i)if(i!=4&&i!=7&&(date[i]<'0'||date[i]>'9'))return false;
+ int year=0;for(int i=0;i<4;++i)year=year*10+date[i]-'0';
+ int month=(date[5]-'0')*10+date[6]-'0',day=(date[8]-'0')*10+date[9]-'0';
+ const int days[]={31,28,31,30,31,30,31,31,30,31,30,31};
+ return year>=1970&&month>=1&&month<=12&&day>=1&&day<=days[month-1]+(month==2&&year%4==0&&(year%100!=0||year%400==0));
+}
 inline Result live_channels(Client &client,const std::string &base,const std::string &token) {
     auto dvrs=client.call("GET",base,"/livetv/dvrs",token);if(!dvrs)return dvrs;
-    auto providers=client.call("GET",base,"/media/providers",token);if(!providers)return providers;
     std::set<std::string> authorized;
     auto mc=dvrs.data.find("MediaContainer");
     if(mc!=dvrs.data.end() && mc->is_object())for(const char *name:{"DVR","Dvr"}) {
         auto list=mc->find(name);if(list!=mc->end() && list->is_array())for(const auto &dvr:*list){if(!dvr.contains("key"))continue;auto key=text(dvr,"key",std::to_string(number(dvr,"key")));if(live_identifier(key))authorized.insert(key);}
     }
+    if(mc==dvrs.data.end() || !mc->is_object())return {{},"Malformed DVR discovery response",dvrs.status};
+    bool shaped=false;
+    for(const char *name:{"DVR","Dvr"}){auto list=mc->find(name);if(list!=mc->end()){if(!list->is_array())return {{},"Malformed DVR list",dvrs.status};shaped=true;}}
+    if(authorized.empty()){
+        if(!shaped && number(*mc,"size",-1)!=0)return {{},"Unsupported DVR discovery response",dvrs.status};
+        return {Json{{"channels",Json::array()},{"configured",false}},"",200};
+    }
+    auto providers=client.call("GET",base,"/media/providers",token);if(!providers)return providers;
+    Result lineup_failure;bool failed=false;
     Json channels=Json::array();mc=providers.data.find("MediaContainer");
+    if(mc==providers.data.end() || !mc->is_object())return {{},"Malformed Plex media providers response",providers.status};
     if(mc!=providers.data.end() && mc->is_object()) {
         auto list=mc->find("MediaProvider");int queried=0;
         if(list!=mc->end() && list->is_array())for(const auto &provider:*list) {
             auto id=text(provider,"identifier"),path=live_provider(id);if(path.empty())continue;
             auto dvr=id.substr(id.rfind(':')+1);if(!authorized.count(dvr) || ++queried>4)continue;
             auto response=client.call("GET",base,path+"/lineups/dvr/channels?X-Plex-Container-Size=200",token);
-            if(!response)continue;
+            if(!response){failed=true;lineup_failure=response;continue;}
             auto container=response.data.find("MediaContainer");if(container==response.data.end())continue;
             auto entries=container->find("Channel");if(entries==container->end() || !entries->is_array())continue;
             for(const auto &channel:*entries) {
@@ -38,11 +55,12 @@ inline Result live_channels(Client &client,const std::string &base,const std::st
             }
         }
     }
-    return {Json{{"channels",std::move(channels)}},"",200};
+    if(channels.empty()&&failed)return lineup_failure;
+    return {Json{{"channels",std::move(channels)},{"configured",true}},"",200};
 }
 inline Result live_guide(Client &client,const std::string &base,const std::string &token,const Json &channel,const std::string &date) {
     auto provider=live_provider(text(channel,"provider")),grid=text(channel,"gridKey");
-    if(provider.empty() || !live_identifier(grid) || date.size()!=10 || date.find_first_not_of("0123456789-")!=std::string::npos)return {{},"Invalid authorized guide selection",0};
+    if(provider.empty() || !live_identifier(grid) || !live_date(date))return {{},"Invalid authorized guide selection",0};
     auto result=client.call("GET",base,provider+"/grid?channelGridKey="+encode(grid)+"&date="+encode(date),token);if(!result)return result;
     Json programs=Json::array();auto mc=result.data.find("MediaContainer");
     if(mc!=result.data.end() && mc->is_object()) {
@@ -50,7 +68,7 @@ inline Result live_guide(Client &client,const std::string &base,const std::strin
             auto media=item.find("Media");if(media==item.end() || !media->is_array())continue;
             for(const auto &airing:*media) {
                 auto begins=number(airing,"beginsAt"),ends=number(airing,"endsAt");if(begins<=0 || ends<=begins || programs.size()>=100)continue;
-                programs.push_back({{"title",live_label(text(item,"title","Program"))},{"series",live_label(text(item,"grandparentTitle"))},{"beginsAt",begins},{"endsAt",ends}});
+                programs.push_back({{"title",live_label(text(item,"title","Program"))},{"series",live_label(text(item,"grandparentTitle"))},{"summary",live_label(text(item,"summary"))},{"beginsAt",begins},{"endsAt",ends}});
             }
         }
     }
@@ -58,18 +76,12 @@ inline Result live_guide(Client &client,const std::string &base,const std::strin
     return {Json{{"programs",std::move(programs)}},"",200};
 }
 inline Result live_tune(Client &client,const std::string &base,const std::string &token,const Json &channel,const std::string &consumer) {
-    auto dvr=text(channel,"dvr"),id=text(channel,"id");
-    if(!live_identifier(dvr) || !live_identifier(id) || !live_identifier(consumer))return {{},"Invalid authorized channel",0};
-    auto result=client.call("POST",base,"/livetv/dvrs/"+encode(dvr)+"/channels/"+encode(id)+"/tune",token);if(!result)return result;
-    auto mc=result.data.find("MediaContainer");if(mc==result.data.end())return {{},"No Live TV session returned",0};
-    auto entries=mc->find("Metadata");if(entries==mc->end() || !entries->is_array() || entries->empty())return {{},"No Live TV media returned",0};
-    const auto &item=(*entries)[0];auto media=item.find("Media");if(media==item.end() || !media->is_array() || media->empty())return {{},"No Live TV stream returned",0};
-    const auto &version=(*media)[0];
-    if(flag(item,"drm") || flag(version,"drm") || flag(version,"protected"))return {{},"Protected Live TV is unsupported",0};
-    auto session=text(version,"uuid");if(!live_identifier(session))return {{},"Missing Live TV session identity",0};
-    bool supported=false;auto parts=version.find("Part");if(parts!=version.end() && parts->is_array())for(const auto &part:*parts){auto streams=part.find("Stream");if(streams!=part.end() && streams->is_array())for(const auto &stream:*streams)if(number(stream,"streamType")==1){auto codec=text(stream,"codec");supported=codec=="h264" || codec=="hevc";}}
-    if(!supported)return {{},"Live TV output codec is not supported by this adapter",0};
-    return {Json{{"url",base+"/livetv/sessions/"+encode(session)+"/"+encode(consumer)+"/index.m3u8?X-Plex-Token="+encode(token)},{"session",session}},"",200};
+    // Documentation establishes tune and playlist endpoints, but not the
+    // consumer acquisition/heartbeat/release contract used by this client.
+    // Do not allocate a tuner until an authorized real-response adapter proves
+    // that complete lifecycle. Never synthesize a playable URL from a UUID.
+    (void)client;(void)base;(void)token;(void)channel;(void)consumer;
+    return {{},"Personal Live TV playback is pending verified Plex consumer/session lifecycle support",0};
 }
 // PMS OpenAPI 1.2.3 Subscriptions: list recording rules and scheduled grabs.
 inline Result live_recordings(Client &client,const std::string &base,const std::string &token) {

@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include <sys/stat.h>
+#include "runtime/paths.h"
 #include <unistd.h>
 #include <string>
 namespace plex {
 inline std::string cache_root(const std::string &app) {
 #if defined(PLEX_PS5) || defined(__FreeBSD__)
     // Separate from the installed title so updates retain cached artwork.
-    const char *root="/data/plexium-client";
+    const char *root=PLEX_STATE_ROOT;
     mkdir(root,0700);struct stat st{};
     if(lstat(root,&st)==0 && S_ISDIR(st.st_mode) && st.st_uid==geteuid() && !(st.st_mode&077))return root;
 #endif

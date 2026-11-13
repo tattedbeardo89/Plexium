@@ -4,16 +4,19 @@
 #include "plex/auth.h"
 #include "plex/home.h"
 #include "plex/home_feed.h"
+#include "plex/guide.h"
 #include <deque>
 #include <thread>
+#include "runtime/worker.h"
+#include "runtime/paths.h"
 #include <mutex>
 #include <condition_variable>
 #include <memory>
 namespace plexium {
 inline constexpr const char *title_id="PPSA85421";
-inline constexpr const char *data_path="/data/plexium-client";
-enum class Screen { Welcome, Linking, Profiles, Pin, Servers, Home, Library, Details, Settings, Search, Playback };
-enum class Action { Restore, Link, Poll, Cancel, Profile, Server, Home, Library, Browse, Page, Details, Children, Search, Play, FreeTV, PlayLive, Stop, Settings, SignOut, Back, Pause, Seek, Audio, Subtitle, Tick };
+inline constexpr const char *data_path=PLEX_STATE_ROOT;
+enum class Screen { Welcome, Linking, Profiles, Pin, Servers, Home, Library, Details, Settings, Search, Playback, Guide };
+enum class Action { Restore, Link, Poll, Cancel, Profile, Server, Home, Library, Browse, Page, Details, Children, Search, Play, FreeTV, PlayLive, Stop, Settings, SignOut, Back, Pause, Seek, Audio, Subtitle, Tick, LiveTV, GuidePage, TuneChannel };
 struct Command { Action action; std::string id, text; };
 struct MediaContext {std::string base,token,scope,account_token;};
 struct Destination {std::string id,label;};
@@ -24,6 +27,7 @@ struct Model {
  std::vector<Destination> servers, navigation;
  std::vector<plex::Item> sections, entries;
  std::vector<plex::Hub> rails;
+ plex::Guide guide;
  plex::Item detail;
  std::string library_id,library_title,library_type,library_tab,library_path;
  std::vector<plex::Hub> detail_rails;
@@ -62,6 +66,8 @@ class Session {
  std::vector<plex::Item> channels;
  std::map<std::string,std::string> live_parts;
  double channels_loaded=0;
+ plex::Json personal_channels=plex::Json::array();
+ double personal_loaded=0;
  double now() const;
  void fail(const char*,int=0);
  bool profiles();
@@ -71,6 +77,7 @@ class Session {
  bool library(const std::string&,const std::string&);
  bool listing(const std::string&,int start=0);
  bool free_tv(bool refresh=false);
+ bool live_tv(int offset,int64_t begins,bool refresh=false);
  void channel_page(int);
  void remember_position(int64_t);
  bool private_root();
@@ -92,11 +99,14 @@ class Runtime {
  MediaContext context;
  uint64_t generation=0;
  bool closing=false;
- std::thread worker;
+ Worker worker;
+ int worker_error=0;
  void run();
  public:
  explicit Runtime(std::unique_ptr<Session>);
  ~Runtime();
+ bool ready()const{return worker_error==0;}
+ int start_error()const{return worker_error;}
  bool send(Command);
  Model snapshot() const;
  // Copy into reusable caller-owned storage; model and credentials share one epoch.
