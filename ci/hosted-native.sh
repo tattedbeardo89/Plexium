@@ -23,6 +23,7 @@ docker run -d --init --name "$name" \
  --mount "type=bind,src=$cache/deps,dst=/workspace/deps" \
  --mount "type=bind,src=$cache/plexium-work,dst=/workspace/plexium-work" \
  --mount type=bind,src=/etc/ssl/certs/ca-certificates.crt,dst=/run/ca-bundle.pem,readonly \
+ -e PLEX_STARTUP_ONLY \
  -e HTTP_PROXY -e HTTPS_PROXY -e NO_PROXY -e http_proxy -e https_proxy -e no_proxy \
  -e SSL_CERT_FILE=/run/ca-bundle.pem -e CURL_CA_BUNDLE=/run/ca-bundle.pem -e GIT_SSL_CAINFO=/run/ca-bundle.pem \
  -w /workspace/Plexium "$image" sleep infinity >/dev/null

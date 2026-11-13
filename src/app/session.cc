@@ -21,8 +21,8 @@ std::string poster(const plex::Item &item) {
  if(item.type=="episode")return item.grandparent_thumb;
  return item.thumb;
 }
-double Session::now()const{return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();}
-Session::Session(plex::Transport t,const std::string &path,PlaybackPort &p):client(std::move(t),"pending"),root(path),player(p){}
+double Session::now()const{if(clock)return clock();return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();}
+Session::Session(plex::Transport t,const std::string &path,PlaybackPort &p,std::function<double()> monotonic_clock):client(std::move(t),"pending"),clock(std::move(monotonic_clock)),root(path),player(p){}
 void Session::fail(const char *stage,int status){model.message=std::string(stage)+(status?" (HTTP "+std::to_string(status)+")":"")+". Retry or return with Circle.";}
 bool Session::private_root(){
  struct stat s{};
@@ -33,8 +33,47 @@ bool Session::private_root(){
 #endif
  return true;
 }
+void Session::flush_progress(){
+ // Each outbox belongs exclusively to the current authorized profile/server.
+ for(size_t n=0,sent=0;n<outbox.entries.size()&&sent<2;){
+  const auto u=outbox.entries[n];if(u.due>now()){++n;continue;}
+  ++sent;auto result=client.bounded(500,1000).timeline(base,token,u.item,u.state,u.position);
+  if(result)outbox.ack(u.item.id,u.sequence);else{outbox.failed(u.item.id,u.sequence,now());++n;}
+ }
+}
+void Session::report_progress(const std::string &state,int64_t position){
+ if(model.detail.type=="channel" || base.empty() || token.empty())return;
+ outbox.put(model.detail,state,position,0);flush_progress();
+}
+bool Session::close_stream(){
+ if(stream.session.empty()){stream={};stream_base.clear();stream_token.clear();return true;}
+ auto bounded=client.bounded(500,1000);
+ auto result=plex::stream_control(bounded,stream_base,stream_token,stream.session,true);
+ if(!result){model.message="Plex streaming session release failed; retry Stop before opening another title.";return false;}
+ stream={};stream_base.clear();stream_token.clear();return true;
+}
+bool Session::open_playback(bool force){
+ if(!close_stream())return false;
+ model.playback_state=PlaybackState::Resolving;if(progress)progress(model);
+ auto bounded=client.bounded(1200,5000);
+ auto session=device+"-"+std::to_string(++playback_serial)+"-"+std::to_string(static_cast<uint64_t>(now()*1000000));
+ stream=model.detail.type=="track"?plex::StreamPlan{plex::audio_direct_play(base,token,model.detail,model.media_version),"","Direct Play"}:
+  plex::negotiate_video(bounded,base,token,model.detail,model.media_version,model.quality,local_connection,session,force);
+ if(stream.playback.mode==plex::Mode::Unsupported){model.playback_state=PlaybackState::Error;fail(stream.playback.error.c_str());return false;}
+ stream_base=base;stream_token=token;model.playback_mode=stream.playback.mode;
+ model.playback_state=PlaybackState::Opening;if(progress)progress(model);
+ if(!player.open(stream.playback.url,model.detail.offset)){
+  bool direct=stream.playback.mode==plex::Mode::DirectPlay;
+  if(!close_stream()){model.playback_state=PlaybackState::Error;return false;}
+  if(direct&&!force&&model.detail.type!="track")return open_playback(true);
+  model.playback_state=PlaybackState::Error;fail("Player failed to open negotiated media");return false;
+ }
+ playback_started=false;heartbeat_at=now()+10;model.paused=false;model.screen=Screen::Playback;
+ // Opening is acceptance of an asynchronous request, never proof of decoding.
+ return true;
+}
 void Session::clear_context(){
- player.stop();current_profile.clear();model.profile_name.clear();model.profile_avatar.clear();active.clear();base.clear();token.clear();server_id.clear();resources.clear();history.clear();cached_home.clear();pages.clear();metadata.clear();channels.clear();live_parts.clear();channels_loaded=0;personal_channels=plex::Json::array();personal_loaded=0;model.guide={};home_loaded=0;
+ player.stop();close_stream();outbox.entries.clear();playback_started=false;model.playback_state=PlaybackState::Released;current_profile.clear();model.profile_name.clear();model.profile_avatar.clear();active.clear();base.clear();token.clear();server_id.clear();resources.clear();history.clear();cached_home.clear();pages.clear();metadata.clear();channels.clear();live_parts.clear();channels_loaded=0;personal_channels=plex::Json::array();personal_loaded=0;model.guide={};home_loaded=0;
  model.sections.clear();model.entries.clear();model.rails.clear();model.navigation.clear();model.detail={};model.detail_rails.clear();model.library_id.clear();model.library_path.clear();model.server_name.clear();model.servers.clear();
 }
 bool Session::profiles(bool restore_saved){
@@ -81,6 +120,7 @@ bool Session::discover(){
 bool Session::connect(const std::string&id){
  auto found=std::find_if(resources.begin(),resources.end(),[&](const auto&s){return s.id==id;});
  if(found==resources.end()){fail("Unknown server selection");return false;}
+ player.stop();if(!close_stream())return false;outbox.entries.clear();playback_started=false;
  base.clear();token.clear();server_id.clear();history.clear();cached_home.clear();pages.clear();metadata.clear();channels.clear();live_parts.clear();channels_loaded=0;personal_channels=plex::Json::array();personal_loaded=0;model.guide={};home_loaded=0;model.sections.clear();model.rails.clear();model.entries.clear();model.navigation.clear();model.detail={};model.screen=Screen::Servers;
  if(found->token.empty())found->token=active;
  std::string selected;
@@ -88,6 +128,7 @@ bool Session::connect(const std::string&id){
  std::string route_id,preferred;
  if(!current_profile.empty()&&plex::load_credentials(root+"/route-"+current_profile+".json",route_id,preferred)&&route_id!=id)preferred.clear();
  auto r=client.bounded(1200,3500).select(*found,false,selected,nullptr,preferred);if(!r){fail("Cannot verify server identity and authorized libraries",r.status);return false;}
+ local_connection=std::any_of(found->connections.begin(),found->connections.end(),[&](const auto &c){return c.uri==selected&&c.local;});
  base=selected;token=found->token.empty()?active:found->token;server_id=id;
  model.server_name=found->name;model.sections=plex::items(r.data,false);
  model.navigation=navigation(model.sections);
@@ -310,7 +351,7 @@ __attribute__((noinline)) const Model &Session::dispatch_current(const Command &
   if(history.size()>=16)history.erase(history.begin());history.push_back(model);
   {auto cached=pages.find("detail:"+c.id);if(cached!=pages.end()&&now()-cached->second.loaded<180){model=cached->second.value;break;}}
   if(listing((c.text=="collection"?"/library/collections/":c.text=="playlist"?"/playlists/":"/library/metadata/")+c.id)&&!model.entries.empty()){
-   model.detail=model.entries.front();model.entries.clear();model.detail_rails.clear();model.screen=Screen::Details;if(progress)progress(model);
+   model.detail=model.entries.front();model.media_version=0;model.entries.clear();model.detail_rails.clear();model.screen=Screen::Details;if(progress)progress(model);
    if(metadata.size()>=32)metadata.erase(metadata.begin());metadata[c.id]={model.detail,now()};
    if(model.detail.type=="episode"&&(!model.detail.grandparent_id.empty())&&(model.detail.credits.size()<3||model.detail.grandparent_thumb.empty())){
     auto parent=model.detail.grandparent_id;
@@ -348,18 +389,49 @@ __attribute__((noinline)) const Model &Session::dispatch_current(const Command &
   if(c.id.empty()||c.id.find_first_not_of("0123456789")!=std::string::npos){fail("Invalid parent identity");break;}
   if(history.size()>=16)history.erase(history.begin());history.push_back(model);model.screen=Screen::Library;model.library_title=model.detail.title;model.library_id.clear();model.library_tab.clear();model.rails.clear();
   listing((model.detail.type=="collection"?"/library/collections/":model.detail.type=="playlist"?"/playlists/":"/library/metadata/")+c.id+(model.detail.type=="playlist"?"/items":"/children"));break;
+ case Action::Version:
+  if(model.screen==Screen::Details&&model.detail.media.is_array()&&!model.detail.media.empty())model.media_version=(model.media_version+1)%model.detail.media.size();break;
+ case Action::Quality:{auto next=(static_cast<int>(model.quality)+1)%7;if(next==2)next=3;model.quality=static_cast<plex::Quality>(next);break;}
  case Action::Play:{
   if(model.detail.type!="movie"&&model.detail.type!="episode"&&model.detail.type!="track"){fail("Select a playable item");break;}
-  auto decision=model.detail.type=="track"?plex::audio_direct_play(base,token,model.detail):plex::direct_play(base,token,model.detail);
-  if(decision.mode!=plex::Mode::DirectPlay){fail("This version requires an unsupported playback path");break;}
-  if(!player.open(decision.url,model.detail.offset)){fail("Native playback did not open");break;}
-  model.paused=false;model.screen=Screen::Playback;break;}
- case Action::Stop:{pages.erase("detail:"+model.detail.id);auto position=player.position();if(!c.text.empty())position=std::clamp<int64_t>(plex::number(plex::Json{{"at",c.text}},"at",position),0,model.detail.duration>0?model.detail.duration:INT64_MAX);player.stop();if(model.detail.type!="channel")remember_position(position);if(model.detail.type!="channel")client.bounded(500,1000).timeline(base,token,model.detail,"stopped",position);model.detail.offset=position;model.screen=model.detail.type=="channel"?Screen::Library:Screen::Details;if(model.detail.type=="channel"&&c.id=="ended"){channels_loaded=0;model.message="The live stream ended or could not be decoded. Select the channel again to reconnect.";}break;}
- case Action::Pause:player.pause();model.paused=player.paused();if(model.detail.type!="channel")client.bounded(500,1000).timeline(base,token,model.detail,player.paused()?"paused":"playing",player.position());break;
- case Action::Seek:if(model.detail.type=="channel")break;player.seek(std::max<int64_t>(0,player.position()+(c.id=="back"?-10000:10000)));break;
- case Action::Audio:player.audio_next();break;
- case Action::Subtitle:player.subtitle_next();break;
- case Action::Tick:if(model.screen==Screen::Playback){model.detail.offset=player.position();model.paused=player.paused();if(model.detail.type!="channel")client.bounded(500,1000).timeline(base,token,model.detail,player.paused()?"paused":"playing",model.detail.offset);}break;
+  open_playback();break;}
+ case Action::Stop:{
+  if(model.screen!=Screen::Playback&&stream.session.empty())break;
+  model.playback_state=PlaybackState::Stopping;
+  pages.erase("detail:"+model.detail.id);auto position=player.position();
+  if(!c.text.empty())position=std::clamp<int64_t>(plex::number(plex::Json{{"at",c.text}},"at",position),0,model.detail.duration>0?model.detail.duration:INT64_MAX);
+  const auto observation=player.observe();player.stop();
+  if(c.id=="ended"&&observation.failed&&!playback_started&&model.playback_mode==plex::Mode::DirectPlay&&model.detail.type!="track"&&model.detail.type!="channel"){
+   open_playback(true);break;
+  }
+  if(model.detail.type!="channel"){
+   if(playback_started||!observation.known){remember_position(position);report_progress("stopped",position);}
+   else position=model.detail.offset;
+  }
+  bool released=close_stream();model.playback_state=released?PlaybackState::Stopped:PlaybackState::Error;
+  model.detail.offset=position;model.screen=model.detail.type=="channel"?Screen::Library:Screen::Details;
+  if(model.detail.type=="channel"&&c.id=="ended"){channels_loaded=0;model.message="The live stream ended or could not be decoded. Select the channel again to reconnect.";}
+  break;}
+ case Action::Pause:
+  if(model.screen!=Screen::Playback)break;
+  player.pause();model.paused=player.paused();model.playback_state=model.paused?PlaybackState::Paused:PlaybackState::Playing;
+  if(playback_started||!player.observe().known)report_progress(model.paused?"paused":"playing",player.position());break;
+ case Action::Seek:
+  if(model.screen!=Screen::Playback||model.detail.type=="channel")break;
+  model.playback_state=PlaybackState::Seeking;player.seek(std::clamp<int64_t>(player.position()+(c.id=="back"?-10000:10000),0,model.detail.duration>0?model.detail.duration:INT64_MAX));
+  if(playback_started||!player.observe().known)report_progress(player.paused()?"paused":"playing",player.position());break;
+ case Action::Audio:if(model.screen==Screen::Playback)player.audio_next();break;
+ case Action::Subtitle:if(model.screen==Screen::Playback)player.subtitle_next();break;
+ case Action::Tick:
+  flush_progress();
+  if(model.screen==Screen::Playback){
+   model.detail.offset=player.position();model.paused=player.paused();auto observed=player.observe();
+   if(observed.failed){model.playback_state=PlaybackState::Error;model.message="Player decoding failed; stop and retry with a different quality.";}
+   else if(observed.buffering)model.playback_state=PlaybackState::Buffering;
+   else if(observed.playing||observed.paused){playback_started=true;model.playback_state=observed.paused?PlaybackState::Paused:PlaybackState::Playing;}
+   if(!observed.failed&&(playback_started||!observed.known))report_progress(model.paused?"paused":"playing",model.detail.offset);
+   if(!stream.session.empty()&&now()>=heartbeat_at){auto bounded=client.bounded(500,1000);if(!plex::stream_control(bounded,stream_base,stream_token,stream.session,false))model.message="Plex streaming heartbeat failed; playback may need to reconnect.";heartbeat_at=now()+10;}
+  }break;
  case Action::Settings:if(history.size()>=16)history.erase(history.begin());history.push_back(model);model.screen=Screen::Settings;break;
  case Action::SignOut:
   clear_context();account.clear();account_id.clear();auth.cancel();unlink((root+"/account.json").c_str());unlink((root+"/selected-profile.json").c_str());model=Model{};break;
@@ -397,7 +469,7 @@ void Runtime::snapshot_into(Model &destination,MediaContext &access)const{std::l
 MediaContext Runtime::media_context()const{std::lock_guard<std::mutex> l(mutex);return context;}
 void Runtime::run(){
  for(;;){std::pair<uint64_t,Command> next;
-  {std::unique_lock<std::mutex> l(mutex);cv.wait(l,[&]{return closing||!queue.empty();});if(closing)return;next=std::move(queue.front());queue.pop_front();}
+  {std::unique_lock<std::mutex> l(mutex);cv.wait(l,[&]{return closing||!queue.empty();});if(closing){l.unlock();session->close_stream();return;}next=std::move(queue.front());queue.pop_front();}
   session->progress=[this,epoch=next.first](const Model &updated){
    std::lock_guard<std::mutex> l(mutex);if(epoch!=generation)return;
    model=updated;model.busy=!queue.empty()||updated.screen!=Screen::Details;context=session->media_context();

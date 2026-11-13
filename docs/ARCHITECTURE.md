@@ -1,3 +1,12 @@
+# Full-client feature audit
+
+See [FEATURE-COMPLETION.md](FEATURE-COMPLETION.md) for the current source audit and
+[PLAYBACK-CONTRACTS.md](PLAYBACK-CONTRACTS.md) for protocol/platform evidence.
+The playback milestone supersedes the earlier direct-play-only checkpoint below: the
+actual Session now integrates universal negotiation, version/quality controls,
+player observations, scoped progress retry and streaming-session release. Live
+PMS and PS5 acceptance remain unrun; named-track renegotiation is incomplete.
+
 # Architecture
 
 The current ownership/teardown contract is recorded in

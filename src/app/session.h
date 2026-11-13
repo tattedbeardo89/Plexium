@@ -5,6 +5,8 @@
 #include "plex/home.h"
 #include "plex/home_feed.h"
 #include "plex/guide.h"
+#include "plex/streaming.h"
+#include "plex/progress_outbox.h"
 #include <deque>
 #include <thread>
 #include "runtime/owned_jobs.h"
@@ -15,8 +17,10 @@
 namespace plexium {
 inline constexpr const char *title_id="PPSA85421";
 inline constexpr const char *data_path=PLEX_STATE_ROOT;
+enum class PlaybackState {Idle,Resolving,Opening,Buffering,Playing,Paused,Seeking,Stopping,Stopped,Error,Released};
+struct PlaybackObservation {bool known=false,playing=false,buffering=false,paused=false,ended=false,failed=false;};
 enum class Screen { Welcome, Linking, Profiles, Pin, Servers, Home, Library, Details, Settings, Search, Playback, Guide };
-enum class Action { Restore, Link, Poll, Cancel, Profile, Server, Home, Library, Browse, Page, Details, Children, Search, Play, FreeTV, PlayLive, Stop, Settings, SignOut, Back, Pause, Seek, Audio, Subtitle, Tick, LiveTV, GuidePage, TuneChannel };
+enum class Action { Restore, Link, Poll, Cancel, Profile, Server, Home, Library, Browse, Page, Details, Children, Search, Play, FreeTV, PlayLive, Stop, Settings, SignOut, Back, Pause, Seek, Audio, Subtitle, Tick, LiveTV, GuidePage, TuneChannel, Version, Quality };
 struct Command { Action action; std::string id, text; };
 struct MediaContext {std::string base,token,scope,account_token;};
 struct Destination {std::string id,label;};
@@ -32,6 +36,10 @@ struct Model {
  std::string library_id,library_title,library_type,library_tab,library_path;
  std::vector<plex::Hub> detail_rails;
  int page_start=0,total=0;
+ PlaybackState playback_state=PlaybackState::Idle;
+ plex::Mode playback_mode=plex::Mode::Unsupported;
+ plex::Quality quality=plex::Quality::Original;
+ size_t media_version=0;
  bool books=false,paused=false,buffering=false;
  bool busy=false;
  int64_t expires=0;
@@ -46,12 +54,14 @@ class PlaybackPort {
  virtual void pause() {}
  virtual bool paused() const {return false;}
  virtual void seek(int64_t) {}
+ virtual PlaybackObservation observe() const {return {};}
  virtual void audio_next() {}
  virtual void subtitle_next() {}
 };
 // All network/storage/player operations execute on one worker, never the render thread.
 class Session {
  plex::Client client;
+ std::function<double()> clock;
  std::string root,device,account,account_id,active,base,token,server_id,current_profile;
  std::vector<plex::Server> resources;
  plex::AuthSession auth;
@@ -68,6 +78,16 @@ class Session {
  double channels_loaded=0;
  plex::Json personal_channels=plex::Json::array();
  double personal_loaded=0;
+ plex::StreamPlan stream;
+ std::string stream_base,stream_token;
+ plex::ProgressOutbox outbox;
+ bool playback_started=false,local_connection=false;
+ uint64_t playback_serial=0;
+ double heartbeat_at=0;
+ void report_progress(const std::string&,int64_t);
+ void flush_progress();
+ bool close_stream();
+ bool open_playback(bool force=false);
  double now() const;
  void fail(const char*,int=0);
  bool profiles(bool restore_saved=false);
@@ -86,7 +106,7 @@ class Session {
  const Model &dispatch_current(const Command&);
  void clear_context();
  public:
- Session(plex::Transport,const std::string&,PlaybackPort&);
+ Session(plex::Transport,const std::string&,PlaybackPort&,std::function<double()> monotonic_clock={});
  Model dispatch(const Command&);
  std::function<void(const Model&)> progress;
  MediaContext media_context()const;

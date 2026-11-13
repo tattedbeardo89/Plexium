@@ -37,6 +37,7 @@ class NativePlayer final:public plexium::PlaybackPort {
  bool paused()const override{return invoke([]{return int64_t(player_paused());})==1;}
  void pause()override{invoke([]{player_toggle_pause();return int64_t(0);});}
  void seek(int64_t ms)override{invoke([ms]{player_seek(ms);return int64_t(0);});}
+ plexium::PlaybackObservation observe()const override {plexium::PlaybackObservation o;invoke([&o]{o={true,player_active()&&!player_buffering()&&!player_paused()&&!player_ended(),player_buffering(),player_paused(),player_ended(),player_failed()};return int64_t(0);});return o;}
  void audio_next()override{invoke([]{auto list=player_audio_tracks();if(list.empty())return int64_t(0);auto found=std::find_if(list.begin(),list.end(),[](const auto&t){return t.id==player_audio_track();});size_t n=found==list.end()?0:(found-list.begin()+1)%list.size();player_set_audio_track(list[n].id);return int64_t(0);});}
  void subtitle_next()override{invoke([]{auto list=player_subtitle_tracks();if(list.empty())return int64_t(0);auto found=std::find_if(list.begin(),list.end(),[](const auto&t){return t.id==player_subtitle_track();});size_t n=found==list.end()?0:(found-list.begin()+1)%list.size();if(list[n].id<0)player_subtitles_off();else player_set_subtitle_track(list[n].id);return int64_t(0);});}
 };
@@ -183,7 +184,7 @@ __attribute__((noinline)) static int run_native(){
   view.aspect=[&](ImTextureID texture){return artwork.aspect(texture);};
   view.avatar=[&](const std::string &url){return artwork.avatar(url,access.account_token);};plat_pad_set_private(view.sensitive(model));
   if(model.screen==plexium::Screen::Linking&&now>=poll&&!model.busy){runtime.send({plexium::Action::Poll,{},{}});poll=now+2;}
-  if(model.screen==plexium::Screen::Playback&&now>=timeline&&!model.busy){runtime.send({plexium::Action::Tick,{},{}});timeline=now+10;}
+  if(now>=timeline&&!model.busy){runtime.send({plexium::Action::Tick,{},{}});timeline=now+((model.playback_state==plexium::PlaybackState::Opening||model.playback_state==plexium::PlaybackState::Buffering)?1:10);}
   if(model.screen==plexium::Screen::Playback&&player_ended()&&!model.busy)runtime.send({plexium::Action::Stop,"ended",{}});
   ImGui_ImplVulkan_NewFrame();io.DisplaySize={float(gfx.width),float(gfx.height)};io.DeltaTime=dt;ImGui::NewFrame();
   auto action=view.frame(model,pressed,dt);if(action){if(action->action==plexium::Action::Stop){action->text=std::to_string(player_time());player_stop();}runtime.send(*action);}ImGui::Render();

@@ -23,6 +23,17 @@ concurrency:
   cancel-in-progress: true
 jobs:
   native:
+    name: Native ${{ matrix.mode }} (held)
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mode: stage1
+            startup_only: '1'
+          - mode: full-client
+            startup_only: '0'
+    env:
+      PLEX_STARTUP_ONLY: ${{ matrix.startup_only }}
     runs-on: ubuntu-24.04
     timeout-minutes: 330
     permissions:
@@ -83,8 +94,8 @@ jobs:
         id: install
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: Plexium-PPSA85421-${{ github.sha }}
-          path: artifacts/Plexium-*-stage1.*.zip
+          name: Plexium-PPSA85421-${{ matrix.mode }}-${{ github.sha }}
+          path: artifacts/Plexium-*-${{ matrix.mode }}.*.zip
           if-no-files-found: error
           retention-days: 90
           compression-level: 0
@@ -92,7 +103,7 @@ jobs:
         id: debug
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: Plexium-native-debug-${{ github.sha }}
+          name: Plexium-native-debug-${{ matrix.mode }}-${{ github.sha }}
           path: artifacts/Plexium-native-debug.elf
           if-no-files-found: error
           retention-days: 90
@@ -101,7 +112,7 @@ jobs:
         id: source
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: Plexium-native-source-${{ github.sha }}
+          name: Plexium-native-source-${{ matrix.mode }}-${{ github.sha }}
           path: |
             artifacts/Plexium-native-source.tar.gz
             artifacts/Plexium-source.bundle
@@ -112,7 +123,7 @@ jobs:
         id: delivery
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: Plexium-delivery-${{ github.sha }}
+          name: Plexium-delivery-${{ matrix.mode }}-${{ github.sha }}
           path: |
             artifacts/SHA256SUMS
             artifacts/native-validation.json
@@ -134,6 +145,7 @@ jobs:
           echo "Source: $SOURCE_URL" >> "$GITHUB_STEP_SUMMARY"
           echo "Checksums/instructions: $DELIVERY_URL" >> "$GITHUB_STEP_SUMMARY"
       - name: Mirror the verified build to the existing draft prerelease
+        if: matrix.mode == 'stage1'
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash ci/upload-draft.sh
@@ -144,12 +156,12 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: Plexium-failure-${{ github.sha }}
+          name: Plexium-failure-${{ matrix.mode }}-${{ github.sha }}
           path: artifacts/logs/
           if-no-files-found: warn
           retention-days: 90
       - name: Record bounded native failure diagnostics in the existing draft
-        if: failure() && steps.native.outcome == 'failure'
+        if: failure() && steps.native.outcome == 'failure' && matrix.mode == 'stage1'
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash ci/report-native-failure.sh

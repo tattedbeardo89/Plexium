@@ -48,9 +48,12 @@ int main(int argc,char **argv){
  Model m;frame("welcome",m);m.screen=Screen::Linking;m.code="ABCD";m.expires=120;frame("linking",m);
  m.screen=Screen::Home;m.profile_name="Fixture profile";m.server_name="Fixture server";
  plex::Item section;section.id="1";section.title="Movies";section.type="movie";m.navigation=navigation({section});
- plex::Item item;item.id="1";item.type="movie";item.title="Synthetic fixture film";item.summary="Rendered from the shared native application view. This frame uses synthetic metadata; it does not demonstrate a live Plex session or PS5 playback.";item.year=2026;item.duration=7200000;item.offset=120000;
+ plex::Item item;item.id="1";item.type="movie";item.title="Synthetic fixture film";item.summary="Rendered from the shared native application view. This frame uses synthetic metadata; it does not demonstrate a live Plex session or PS5 playback.";item.year=2026;item.duration=7200000;item.offset=120000;item.media=plex::Json::array({{{"videoCodec","h264"},{"width",1920},{"height",1080}},{{"videoCodec","hevc"},{"width",1280},{"height",720}}});
  m.rails={{"continueWatching","Continue Watching",true,{item}},{"recentlyAddedMovies","Recently Added Movies",false,{item}}};frame("home",m);
  m.screen=Screen::Library;m.entries={item,item,item,item,item,item,item};frame("library",m);m.screen=Screen::Details;m.detail=item;frame("details",m);
+ View detail_controls;
+ auto detail_input=[&](unsigned keys){ImGui::NewFrame();auto action=detail_controls.frame(m,keys,.016f);ImGui::Render();return action;};
+ TEST_REQUIRE(detail_input(L1)->action==Action::Version);TEST_REQUIRE(detail_input(R1)->action==Action::Quality);
  m.screen=Screen::Profiles;m.profiles={{"1","","Fixture owner","",false,true,false},{"2","","Fixture child","",true,false,true}};frame("profiles",m);
  Model recommended=m;recommended.screen=Screen::Library;recommended.navigation=navigation({section});recommended.library_id="1";recommended.library_type="movie";recommended.library_title="Fixture Movies";recommended.library_tab="recommended";recommended.rails={{"popular","Recommended for you",false,{item,item,item}}};frame("recommended",recommended);
  Model music=recommended;music.library_type="artist";music.library_title="Fixture Music";auto album=item;album.type="album";album.title="Fixture album";album.artist="Fixture artist";music.rails={{"albums","Recently Added Albums",false,{album,album}}};frame("music",music);

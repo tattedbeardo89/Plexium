@@ -11,7 +11,7 @@ endif
 CORE := $(OBJ)/src/plex/client.o $(OBJ)/third_party/tinyxml2/tinyxml2.o
 APP := $(OBJ)/src/app/session.o
 IMGUI := $(addprefix $(OBJ)/third_party/imgui/,$(addsuffix .o,imgui imgui_draw imgui_widgets imgui_tables))
-SUITES := artwork-tests session-restore-tests state-tests guide-tests startup-runtime-tests runtime-tests session-tests protocol-tests auth-tests home-tests home-feed-tests
+SUITES := playback-integration-tests  artwork-tests session-restore-tests state-tests guide-tests startup-runtime-tests runtime-tests session-tests protocol-tests auth-tests home-tests home-feed-tests
 .PHONY: all test clean
 all: $(addprefix $(OUT)/,$(SUITES)) $(OUT)/plexium-render $(OUT)/transport-probe $(OUT)/plexium-cli
 $(OUT)/artwork-tests: $(CORE) $(OBJ)/src/plex/artwork.o $(OBJ)/tests/artwork_tests.o
@@ -68,3 +68,12 @@ $(OUT)/plexium-render: $(CORE) $(APP) $(IMGUI) $(OBJ)/src/app/view.o $(OBJ)/tool
 	$(CXX) $^ $(LDFLAGS) -o $@
 $(OBJ)/src/plex/transport_curl.o: CXXFLAGS += $(shell pkg-config --cflags libcurl)
 -include $(shell find $(OBJ) -name '*.d' 2>/dev/null)
+
+$(OUT)/playback-integration-tests: $(CORE) $(APP) $(OBJ)/tests/playback_integration_tests.o
+	@mkdir -p $(dir $@)
+	$(CXX) $^ $(LDFLAGS) -o $@
+
+$(OBJ)/tests/host_vlc_tests.o: CXXFLAGS += $(if $(VLC_HOST_CFLAGS),$(VLC_HOST_CFLAGS),$(shell pkg-config --cflags libvlc fontconfig)) -fopenmp
+$(OUT)/host-vlc-tests: $(CORE) $(APP) $(OBJ)/tests/host_vlc_tests.o
+	@mkdir -p $(dir $@)
+	$(CXX) $^ $(LDFLAGS) $(if $(VLC_HOST_LIBS),$(VLC_HOST_LIBS),$(shell pkg-config --libs libvlc fontconfig)) -l:libfontconfig.so.1 -fopenmp -o $@

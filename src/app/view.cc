@@ -80,6 +80,11 @@ __attribute__((noinline)) std::optional<Command> View::details_frame(const Model
   if(row==0)column=std::clamp(column,0,3);
   const std::string labels[]={container?(m.detail.type=="show"?"View seasons":m.detail.type=="season"?"View episodes":m.detail.type=="artist"?(m.books?"View books":"View albums"):m.detail.type=="collection"?"View collection":"View tracks"):m.detail.offset>0?"Resume":"Play","Full story","Cast","Related"};
   for(int i=0;i<4;++i)c.button(680+i*270,565,250,labels[i],row==0&&column==i);
+  if(!container&&m.detail.media.is_array()&&!m.detail.media.empty()){
+   c.text(680,625,"Version "+std::to_string(m.media_version+1)+" / "+std::to_string(m.detail.media.is_array()?m.detail.media.size():0)+" · "+plex::quality_name(m.quality),22,c.muted);
+   c.text(680,655,"L1: media version    R1: quality (up to 1080p)",20,c.muted);
+   if(keys&L1)return command(Action::Version);if(keys&R1)return command(Action::Quality);
+  }
   if(row==0&&(keys&Cross)){if(column==0)return command(container?Action::Children:Action::Play,m.detail.id);detail_panel=column;row=1;column=0;detail_scroll=0;}
   if(detail_panel==1){
    std::string label="About";if(!m.detail.studio.empty())label+=" · "+m.detail.studio;
@@ -211,7 +216,7 @@ std::optional<Command> View::frame(const Model&m,unsigned keys,float dt){
  case Screen::Settings:
   c.text(420,235,"Settings & About",55);c.text(425,340,"Plexium · "+std::string(title_id),30);
   c.text(425,800,"Unofficial Plex client; not affiliated with or endorsed by Plex",22,c.muted);
-  c.wrap(425,415,"Original quality · verified HTTPS · subtitles off by default.\nThis development checkpoint requires physical PS5 acceptance.",1160,28);
+  c.wrap(425,415,"Choose version and quality on title details · verified HTTPS · subtitles off by default.\nThis development checkpoint requires physical PS5 acceptance.",1160,28);
   c.button(425,650,350,"Sign out",true);if(keys&Cross)return command(Action::SignOut);break;
  case Screen::Guide:return guide_frame(m,keys,c);
  case Screen::Details:return details_frame(m,keys,c);

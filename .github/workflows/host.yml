@@ -12,7 +12,7 @@ jobs:
       - name: Install host prerequisites
         run: |
           sudo apt-get update
-          sudo apt-get install -y g++ make pkg-config libcurl4-openssl-dev libgnutls28-dev libvulkan-dev libvlc-dev libvlccore-dev python3-venv openssl
+          sudo apt-get install -y g++ make pkg-config libcurl4-openssl-dev libgnutls28-dev libvulkan-dev libvlc-dev libvlccore-dev vlc-plugin-base ffmpeg libfontconfig-dev python3-venv openssl
       - name: Install pinned artwork tooling
         run: |
           python3 -m venv /tmp/plexium-tools
@@ -37,6 +37,10 @@ jobs:
         run: |
           SANITIZE=1 python3 ci/run-check.py sanitizers bash host/check.sh
           VULKAN_HEADERS=/usr/include SANITIZE=1 python3 ci/run-check.py native-entry-san bash host/test-native-entry.sh
+      - name: Actual host VLC software playback
+        run: |
+          python3 ci/run-check.py host-vlc bash host/test-vlc-integration.sh
+          SANITIZE=1 python3 ci/run-check.py host-vlc-san bash host/test-vlc-integration.sh
       - name: Production player lifecycle injection
         env:
           VULKAN_HEADERS: /usr/include
