@@ -1,0 +1,87 @@
+name: Plexium host regressions
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  host:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Install host prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ make pkg-config libcurl4-openssl-dev libgnutls28-dev libvulkan-dev libvlc-dev libvlccore-dev vlc-plugin-base ffmpeg libfontconfig-dev libpixman-1-dev python3-venv openssl
+      - name: Install pinned artwork tooling
+        run: |
+          python3 -m venv /tmp/plexium-tools
+          /tmp/plexium-tools/bin/pip install -r tools/requirements.txt
+          echo /tmp/plexium-tools/bin >> "$GITHUB_PATH"
+      - name: Test application, protocol, TLS, rendering and identity
+        run: python3 ci/run-check.py host bash host/check.sh
+      - name: Check native sources (host syntax only)
+        run: VULKAN_HEADERS=/usr/include python3 ci/run-check.py native-syntax bash host/check-native-source.sh
+      - name: Native startup entry failure injection (host only)
+        run: VULKAN_HEADERS=/usr/include python3 ci/run-check.py native-entry bash host/test-native-entry.sh
+      - name: Filesystem setup/security tests with NDEBUG
+        run: python3 ci/run-check.py filesystem-ndebug bash host/test-filesystem-ndebug.sh
+      - name: Production native transport and Vulkan failures
+        env:
+          VULKAN_HEADERS: /usr/include
+        run: |
+          python3 ci/run-check.py native-transport bash host/test-native-transport.sh
+          python3 ci/run-check.py vulkan bash host/test-gfx-failures.sh
+          SANITIZE=1 python3 ci/run-check.py vulkan-san bash host/test-gfx-failures.sh
+      - name: Sanitizers
+        run: |
+          SANITIZE=1 python3 ci/run-check.py sanitizers bash host/check.sh
+          VULKAN_HEADERS=/usr/include SANITIZE=1 python3 ci/run-check.py native-entry-san bash host/test-native-entry.sh
+      - name: Production player lifecycle injection
+        env:
+          VULKAN_HEADERS: /usr/include
+        run: |
+          python3 ci/run-check.py player-lifecycle bash host/test-player-lifecycle.sh
+          SANITIZE=1 python3 ci/run-check.py player-lifecycle-san bash host/test-player-lifecycle.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: Plexium-host-frames
+          path: build/*.png
+      - name: Collect bounded failure summary
+        if: failure()
+        run: python3 ci/collect-failure.py
+      - name: Upload bounded failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: Plexium-host-failure-${{ github.sha }}
+          path: artifacts/logs/
+          if-no-files-found: warn
+          retention-days: 14
+
+  host-vlc:
+    name: Actual host VLC software playback
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Install actual codec/runtime prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ make pkg-config libvlc-dev vlc-plugin-base ffmpeg libfontconfig-dev libpixman-1-dev
+      - name: Decode synthetic 1080p H.264/AAC through shared Session
+        run: |
+          python3 ci/run-check.py host-vlc bash host/test-vlc-integration.sh
+          SANITIZE=1 python3 ci/run-check.py host-vlc-san bash host/test-vlc-integration.sh
+      - name: Collect bounded failure summary
+        if: failure()
+        run: python3 ci/collect-failure.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: Plexium-host-vlc-diagnostics-${{ github.sha }}
+          path: artifacts/logs/
+          if-no-files-found: warn
+          retention-days: 14

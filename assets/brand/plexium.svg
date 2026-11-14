@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+<!-- Original Plexium orbital lens mark. CC0-1.0. Geometry is the raster source. -->
+<rect x="0" y="0" width="512" height="512" fill="#0c0d18"/>
+<polygon points="114,141 256,76 398,141 398,371 256,436 114,371" fill="#292447"/>
+<polygon points="151,163 256,116 361,163 361,349 256,396 151,349" fill="#8b76ff"/>
+<polygon points="186,186 256,154 326,186 326,326 256,358 186,326" fill="#0c0d18"/>
+<polygon points="236,205 236,307 303,256" fill="#d7d2ff"/>
+<polygon points="114,141 151,163 256,116 256,76" fill="#5798e6"/>
+</svg>
