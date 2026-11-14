@@ -512,6 +512,25 @@ __attribute__((noinline)) void Session::tick_command(const Command &c){
  default:break;
  }
 }
+__attribute__((noinline)) void Session::restore_command(){
+  if(!clear_context())return;account.clear();account_id.clear();account_name.clear();model=Model{};
+  if(!private_root()){fail("Private app storage is unavailable");return;}
+  std::string ignored;
+  if(!plex::load_credentials(root+"/device.json",device,ignored)){
+   std::ifstream random("/dev/urandom",std::ios::binary);unsigned char bytes[16]{};
+   if(!random.read(reinterpret_cast<char*>(bytes),16)){fail("Secure device identity unavailable");return;}
+   const char *hex="0123456789abcdef";for(auto b:bytes){device+=hex[b>>4];device+=hex[b&15];}
+   if(!plex::save_credentials(root+"/device.json",device,"")){fail("Cannot save device identity");return;}
+  }
+  // Keep the same transport while activating the persisted device identifier.
+  client.set_client_id(device);
+  if(plex::load_credentials(root+"/account.json",ignored,account)&&!account.empty()){
+   auto r=client.validate_account(account);if(r){account_id=plex::profile_id(r.data);account_name=plex::text(r.data,"username",plex::text(r.data,"title","Linked Plex account"));profiles(true);}else{account.clear();fail("Saved account needs sign-in",r.status);}
+  }
+}
+__attribute__((noinline)) void Session::sign_out_command(){
+  if(!clear_context())return;account.clear();account_id.clear();account_name.clear();auth.cancel();unlink((root+"/account.json").c_str());unlink((root+"/selected-profile.json").c_str());model=Model{};
+}
 Model Session::dispatch(const Command &c){return dispatch_current(c);}
 // Runtime borrows this worker-owned view only until its locked copy completes.
 __attribute__((noinline)) const Model &Session::dispatch_current(const Command &c){
@@ -520,22 +539,7 @@ __attribute__((noinline)) const Model &Session::dispatch_current(const Command &
  if(next_deadline>0&&c.action!=Action::Tick&&c.action!=Action::PlayNext){next_deadline=0;model.autoplay_remaining=0;}
  if(feature_command(c)){decorate();return model;}
  switch(c.action){
- case Action::Restore:{
-  if(!clear_context())break;account.clear();account_id.clear();account_name.clear();model=Model{};
-  if(!private_root()){fail("Private app storage is unavailable");break;}
-  std::string ignored;
-  if(!plex::load_credentials(root+"/device.json",device,ignored)){
-   std::ifstream random("/dev/urandom",std::ios::binary);unsigned char bytes[16]{};
-   if(!random.read(reinterpret_cast<char*>(bytes),16)){fail("Secure device identity unavailable");break;}
-   const char *hex="0123456789abcdef";for(auto b:bytes){device+=hex[b>>4];device+=hex[b&15];}
-   if(!plex::save_credentials(root+"/device.json",device,"")){fail("Cannot save device identity");break;}
-  }
-  // Keep the same transport while activating the persisted device identifier.
-  client.set_client_id(device);
-  if(plex::load_credentials(root+"/account.json",ignored,account)&&!account.empty()){
-   auto r=client.validate_account(account);if(r){account_id=plex::profile_id(r.data);account_name=plex::text(r.data,"username",plex::text(r.data,"title","Linked Plex account"));profiles(true);}else{account.clear();fail("Saved account needs sign-in",r.status);}
-  }
-  break;}
+ case Action::Restore:restore_command();break;
  case Action::Link:
   if(device.empty()){fail("Initialize secure storage before linking");break;}
   auth.begin(now());auth.created(client.create_pin(),now());model.screen=Screen::Linking;model.code=auth.current.code;
@@ -632,8 +636,7 @@ __attribute__((noinline)) const Model &Session::dispatch_current(const Command &
   if(model.screen==Screen::Playback)for(const auto &marker:model.detail.markers)if(model.detail.offset>=marker.begins&&model.detail.offset<marker.ends){player.seek(marker.ends);model.detail.offset=marker.ends;report_progress("playing",marker.ends);break;}break;
  case Action::Tick:tick_command(c);break;
  case Action::Settings:if(history.size()>=16)history.erase(history.begin());history.push_back(model);model.screen=Screen::Settings;break;
- case Action::SignOut:
-  if(!clear_context())break;account.clear();account_id.clear();account_name.clear();auth.cancel();unlink((root+"/account.json").c_str());unlink((root+"/selected-profile.json").c_str());model=Model{};break;
+ case Action::SignOut:sign_out_command();break;
  case Action::Back:
   if((model.screen==Screen::Guide||model.screen==Screen::Recordings)&&model.guide_during_live&&live_session&&live_session->owns_resources()){model.screen=Screen::Playback;model.guide_during_live=false;break;}
   next_deadline=0;model.autoplay_remaining=0;

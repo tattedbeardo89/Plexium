@@ -102,6 +102,8 @@ class Session {
  bool stop_audio(int64_t captured=-1);
  bool open_audio();
  void report_audio(const std::string&,int64_t);
+ void restore_command();
+ void sign_out_command();
  void details_command(const Command&);
  void stop_command(const Command&);
  void tick_command(const Command&);
