@@ -10,7 +10,12 @@ struct Engine:PlaybackPort {
  int opens=0,stops=0,audio_id=-1,subtitle_id=-1;bool reject=false;int64_t at=12000;
  std::string prepared_language;
  void prepare_audio(const plex::MediaTrack *track)override{prepared_language=track?track->language:"";}
- std::vector<plex::NativeTrack> native_tracks(bool subtitle)const override{return subtitle?std::vector<plex::NativeTrack>{{88,"English captions","eng","srt",0}}:std::vector<plex::NativeTrack>{{42,"English","eng","aac",2},{43,"Spanish","spa","aac",2}};}
+ std::vector<plex::NativeTrack> native_tracks(bool subtitle)const override{
+  std::vector<plex::NativeTrack> result;
+  if(subtitle)result.push_back({88,"English captions","eng","srt",0});
+  else{result.push_back({42,"English","eng","aac",2});result.push_back({43,"Spanish","spa","aac",2});}
+  return result;
+ }
  bool select_native_track(bool subtitle,int id)override{(subtitle?subtitle_id:audio_id)=id;return true;}
  PlaybackObservation observation{true,false,true,false,false,false};
  bool open(const std::string&,int64_t offset)override{++opens;at=offset;return !reject;}

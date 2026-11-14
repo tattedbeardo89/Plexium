@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #pragma once
-#include "plex/tracks.h"
+#include "plex/track_types.h"
 
 #include <stdint.h>
 #include <string>

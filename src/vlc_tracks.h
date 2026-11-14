@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
-#include "plex/tracks.h"
+#include "plex/track_types.h"
 #include <vlc/vlc.h>
 #include <cstring>
 inline std::vector<plex::NativeTrack> vlc_track_descriptors(libvlc_media_player_t *player,bool subtitle){
