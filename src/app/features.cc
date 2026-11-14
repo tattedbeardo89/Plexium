@@ -57,7 +57,7 @@ __attribute__((noinline)) void Session::search_command(const Command &c){
  if(result)model.rails=search_rows(result.data,model.sections,scope);
  if(model.rails.empty()){
   auto fallback=bounded.browse(base,token,scope.empty()?"/search?query="+plex::encode(c.text):"/library/sections/"+plex::encode(scope)+"/all?title="+plex::encode(c.text),0,60);
-  if(fallback){auto entries=plex::items(fallback.data,false);if(!scope.empty())for(auto &item:entries)item.section_id=scope;if(!entries.empty())model.rails.push_back({"results","Results",false,std::move(entries)});}
+  if(fallback){auto entries=plex::items(fallback.data,false);filter_search_entries(entries,model.sections,scope,!scope.empty());if(!entries.empty())model.rails.push_back({"results","Results",false,std::move(entries)});}
   else {model.connected=false;connection_verified=false;model.message="Search is unavailable. Check your server connection and retry.";}
  }
  for(const auto &rail:model.rails)for(const auto &item:rail.entries){if(model.entries.size()>=60)break;model.entries.push_back(item);}
