@@ -26,7 +26,7 @@ inline bool audiobook_library(std::string title){
  return title.find("book")!=std::string::npos;
 }
 inline std::vector<std::pair<std::string,std::string>> library_tabs(const std::string &type,bool books){
- if(type=="artist")return {{"recommended","Recommended"},{"artists",books?"Authors":"Artists"},{"albums",books?"Books":"Albums"},{"tracks",books?"Chapters":"Tracks"},{"genres","Genres"}};
- return {{"recommended","Recommended"},{"all","Library"},{"recent","Recent"},{"unwatched","Unwatched"},{"genres","Genres"},{"collections","Collections"}};
+ if(type=="artist")return {{"recommended","Recommended"},{"artists",books?"Authors":"Artists"},{"albums",books?"Books":"Albums"},{"tracks",books?"Chapters":"Tracks"},{"genres","Genres"},{"playlists","Playlists"}};
+ return {{"recommended","Recommended"},{"all","Library"},{"recent","Recent"},{"released","Released"},{"unwatched","Unwatched"},{"genres","Genres"},{"collections","Collections"}};
 }
 }

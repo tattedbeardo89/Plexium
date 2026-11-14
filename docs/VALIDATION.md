@@ -85,3 +85,15 @@ for the explicit fixture/real-server boundary, disabled production tuning and un
 consumer lifecycle contracts. Native guide raster checks now cover fifteen distinct
 frames, including favorites, Mini Guide and read-only recordings. Real VLC additionally
 covers local HLS negotiated-mode fixtures and actual episode-end/reopen observations.
+
+The full-client extension adds `client-features-tests` to normal, ASan/UBSan and NDEBUG
+coverage. It exercises extended server-authored Home rows, scoped search/rejection,
+released-date sorting and 3700-item pages, metadata identity, restart/chapters/60s seek,
+failed-decoder resume, explicit watched state, background music attribution and queue
+controls, captured music Stop, scoped settings/schema preservation, installed notice
+path/symlink bounds, cache admission and surface-only pressure/overflow checks. Actual
+host VLC additionally decodes AAC-only queues through the production Session, including
+background browse, pause/resume, next, end/repeat-one/reopen and stopped callback checks.
+Native raster coverage expands to 26 screens, including all Settings sections, search,
+series details, video info, music, notices and safe area. All remain synthetic host
+acceptance. No real-PMS or physical testing is attempted in this milestone.

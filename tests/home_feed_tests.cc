@@ -39,5 +39,6 @@ int main() {
     auto other=movie;other.id="3";
     auto aggregated=home_rows(home_feed(fallback,"https://fixture.invalid","profile-scoped-token",{movie,other},[]{return true;},{},true).data);
     TEST_REQUIRE(aggregated.size()==2);for(const auto &row:aggregated)TEST_REQUIRE(row.entries.size()==2);
+    auto strict_missing=home_feed(unavailable,"https://fixture.invalid","profile-scoped-token",{},[]{return true;},{},true,true);TEST_REQUIRE(!strict_missing&&strict_missing.status==404);
     std::cout<<"Home feed tests passed: real Continue Watching identity/progress, empty rows omitted, release-date query, scoped token, cancellation, unsupported endpoints\n";
 }

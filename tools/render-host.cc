@@ -70,6 +70,15 @@ int main(int argc,char **argv){
  Model favorite_guide=guide_model;favorite_guide.guide.favorites_only=true;favorite_guide.guide.channels[0].favorite=true;frame("guide-favorites",favorite_guide);
  Model mini_guide=guide_model;mini_guide.guide.mini=true;frame("guide-mini",mini_guide);
  Model recordings=guide_model;recordings.screen=Screen::Recordings;plex::Item recording;recording.title="Fixture scheduled series";recording.summary="Scheduled through Plex DVR";recordings.recording_rows={recording};frame("recordings",recordings);
+ Model search_result=m;search_result.screen=Screen::Library;search_result.library_id.clear();search_result.library_tab="results";search_result.library_title="Search: Fixture";search_result.rails={{"movies","Movies",false,{item}}};search_result.entries={item};frame("search-results",search_result);
+ Model television=m;television.screen=Screen::Details;television.detail=item;television.detail.type="show";television.detail.title="Fixture series overview";frame("tv-details",television);
+ Model player_info=m;player_info.screen=Screen::Playback;player_info.detail=item;player_info.playback_info=true;frame("playback-info",player_info);
+ Model music_player=player_info;music_player.detail.type="track";music_player.detail.title="Fixture track";music_player.detail.artist="Fixture artist";music_player.detail.album="Fixture album";music_player.music_active=true;music_player.music_total=3;music_player.music_preview={music_player.detail,music_player.detail,music_player.detail};frame("music-player",music_player);
+ Model notices=m;notices.screen=Screen::Notices;notices.notice_labels={"Plexium · GPL-3.0-or-later","VLC · GPL-2.0-or-later","Inter · SIL Open Font License"};frame("notices",notices);
+ settings.profile_name="Fixture profile";settings.server_name="Fixture server";settings.app_version="0.5.0 · host fixture";settings.build_sha="Fixture source identity; production value comes from the build stamp";settings.build_date="Fixture source date";settings.runtime_info="Host screenshot fixture · hardware hold";
+ const char *panels[]={"settings-server","settings-playback","settings-appearance","settings-live-tv","settings-system"};
+ for(int section=1;section<6;++section){View settings_view;for(int step=0;step<=section;++step){ImGui::NewFrame();settings_view.frame(settings,step?R1:0,.016f);ImGui::Render();}raster.draw(ImGui::GetDrawData());raster.save(std::string(argv[1])+"/"+panels[section-1]+".ppm");}
+ Model safe=search_result;safe.preferences.safe_area=5;safe.preferences.theme=2;frame("safe-area",safe);
  View guide_view;
  auto guide_input=[&](unsigned keys){ImGui::NewFrame();auto action=guide_view.frame(guide_model,keys,.016f);ImGui::Render();return action;};
  TEST_REQUIRE(guide_input(Cross)->action==Action::TuneChannel);

@@ -1,0 +1,55 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+#include "check.h"
+#include "app/session.h"
+#include "app/catalog.h"
+#include "plex/surface_budget.h"
+#include "fixtures/plex_server.h"
+#include <filesystem>
+#include <iostream>
+using namespace plexium;
+struct FeaturePlayer:PlaybackPort{
+ int opens=0,stops=0;int64_t at=0;bool pause_state=false;PlaybackObservation state{true,true,false,false,false,false};
+ bool open(const std::string&,int64_t position)override{++opens;at=position;state={true,true,false,false,false,false};return true;}void stop()override{++stops;state={true,false,false,false,false,false};}int64_t position()const override{return at;}PlaybackObservation observe()const override{return state;}void seek(int64_t p)override{at=p;}void pause()override{pause_state=!pause_state;}bool paused()const override{return pause_state;}
+};
+int main(){
+ char folder[]="/tmp/plexium-client-features-XXXXXX";TEST_REQUIRE(mkdtemp(folder));std::string root=folder;TEST_REQUIRE(plex::save_credentials(root+"/account.json","fixture-device","account-token"));Fixture fixture;FeaturePlayer engine;double clock=1000;int watched_calls=0;std::string last_query,last_timeline;bool wrong_metadata=false,home_offline=false,home_empty=false;
+ fixture.metadata["Chapter"]=plex::Json::array({{{"tag","Opening"},{"startTimeOffset",0},{"endTimeOffset",30000}},{{"tag","Middle"},{"startTimeOffset",30000},{"endTimeOffset",60000}},{{"tag","Finale"},{"startTimeOffset",60000},{"endTimeOffset",90000}}});
+ auto track=[&](const std::string&id){return plex::Json{{"ratingKey",id},{"key","/library/metadata/"+id},{"type","track"},{"title","Fixture track "+id},{"grandparentTitle","Fixture artist"},{"parentTitle","Fixture album"},{"parentRatingKey","100"},{"librarySectionID","3"},{"duration",30000},{"index",id=="101"?1:2},{"Media",plex::Json::array({{{"container","m4a"},{"audioCodec","aac"},{"Part",plex::Json::array({{{"key","/library/parts/"+id+"/file.m4a"}}})}}})}};};
+ auto transport=[&](const plex::Request&q){
+  auto reply=[](plex::Json data){return plex::Reply{200,data.dump(),""};};
+  if(q.url.find("/library/sections?")!=std::string::npos||q.url=="https://fixture.test/library/sections")return reply({{"MediaContainer",{{"Directory",plex::Json::array({{{"key","1"},{"type","movie"},{"title","Movies"}},{{"key","2"},{"type","show"},{"title","TV"}},{{"key","3"},{"type","artist"},{"title","Music"}}})}}}});
+  if((home_offline||home_empty)&&(q.url.find("/hubs")!=std::string::npos||q.url.find("/library/sections/1/all?")!=std::string::npos||q.url.find("/library/sections/2/all?")!=std::string::npos||q.url.find("/recentlyAdded")!=std::string::npos)){if(home_offline)return plex::Reply{503,"{}",""};return reply({{"MediaContainer",{{"Metadata",plex::Json::array()}}}});}
+  if(q.url.find("/hubs/search")!=std::string::npos){last_query=q.url;auto item=fixture.metadata;item["librarySectionID"]="1";auto foreign=item;foreign["ratingKey"]="999";foreign["librarySectionID"]="99";return reply({{"MediaContainer",{{"Hub",plex::Json::array({{{"hubIdentifier","movie"},{"title","Movies"},{"Metadata",plex::Json::array({item,foreign})}}})}}}});}
+  if(q.url=="https://fixture.test/hubs?count=12&includeEmpty=0"){auto episode=fixture.metadata;episode["type"]="episode";episode["ratingKey"]="2";episode["librarySectionID"]="2";return reply({{"MediaContainer",{{"Hub",plex::Json::array({{{"hubIdentifier","tv.onDeck"},{"type","episode"},{"title","On Deck"},{"Metadata",plex::Json::array({episode})}},{{"hubIdentifier","movie.recommendations"},{"title","Recommended Movies"},{"Metadata",plex::Json::array({fixture.metadata})}}})}}}});}
+  if(q.url.find("/library/sections/1/all?")!=std::string::npos){last_query=q.url;plex::Json entries=plex::Json::array();for(int n=0;n<60;++n){auto item=fixture.metadata;item["ratingKey"]=std::to_string(n+1);entries.push_back(item);}return reply({{"MediaContainer",{{"totalSize",3700},{"Metadata",entries}}}});}
+  if(q.url.find("/:/scrobble")!=std::string::npos||q.url.find("/:/unscrobble")!=std::string::npos){++watched_calls;fixture.metadata["viewCount"]=q.url.find("/:/unscrobble")==std::string::npos?1:0;return reply({});}
+  if(q.url.find("/library/metadata/100/children")!=std::string::npos)return reply({{"MediaContainer",{{"totalSize",2},{"Metadata",plex::Json::array({track("101"),track("102")})}}}});
+  if(q.url.find("/library/metadata/100?")!=std::string::npos)return reply({{"MediaContainer",{{"Metadata",plex::Json::array({{{"ratingKey","100"},{"type","album"},{"title","Fixture album"},{"librarySectionID","3"}}})}}}});
+  for(const auto *id:{"101","102"})if(q.url.find(std::string("/library/metadata/")+id+"?")!=std::string::npos)return reply({{"MediaContainer",{{"Metadata",plex::Json::array({track(id)})}}}});
+  if(q.url.find("/:/timeline")!=std::string::npos)last_timeline=q.url;
+  if(wrong_metadata&&q.url.find("/library/metadata/999?")!=std::string::npos)return reply({{"MediaContainer",{{"Metadata",plex::Json::array({fixture.metadata})}}}});
+  return fixture(q);
+ };
+ Session session(transport,root,engine,[&]{return clock;});auto send=[&](Action a,std::string id="",std::string text=""){return session.dispatch({a,id,text});};send(Action::Restore);auto model=send(Action::Profile,"1");TEST_REQUIRE(model.screen==Screen::Home);TEST_REQUIRE(std::any_of(model.rails.begin(),model.rails.end(),[](const auto&r){return r.id=="onDeck";}));
+ model=send(Action::Search,"1","Film");TEST_REQUIRE(model.entries.size()==1&&model.entries[0].id=="1"&&last_query.find("sectionId=1")!=std::string::npos);model=send(Action::Search,"99","Film");TEST_REQUIRE(model.message.find("authorized")!=std::string::npos);
+ model=send(Action::Library,"1","released");TEST_REQUIRE(model.total==3700&&model.entries.size()==60&&last_query.find("originallyAvailableAt:desc")!=std::string::npos);model=send(Action::Page,"next");TEST_REQUIRE(model.page_start==60);
+ model=send(Action::Details,"1");TEST_REQUIRE(model.detail.chapters.size()==3);send(Action::Restart);TEST_REQUIRE(engine.at==0);engine.at=1000;send(Action::Tick);send(Action::Chapter,"next");TEST_REQUIRE(engine.at==30000);send(Action::FastSeek,"forward");TEST_REQUIRE(engine.at==90000);
+ engine.at=22000;send(Action::Tick);engine.at=0;engine.state.failed=true;model=send(Action::Tick);TEST_REQUIRE(model.detail.offset==22000&&model.playback_state==PlaybackState::Error);auto retries=engine.opens;model=send(Action::RetryPlayback);TEST_REQUIRE(engine.opens==retries+1&&model.detail.offset==22000);send(Action::Tick);engine.at=0;engine.state.failed=true;model=send(Action::Stop);TEST_REQUIRE(model.detail.offset==22000&&last_timeline.find("time=22000")!=std::string::npos&&watched_calls==0);
+ model=send(Action::MarkWatched);TEST_REQUIRE(model.detail.watched&&watched_calls==1);model=send(Action::MarkWatched);TEST_REQUIRE(!model.detail.watched&&watched_calls==2);
+ wrong_metadata=true;model=send(Action::Details,"999");TEST_REQUIRE(model.message.find("different item")!=std::string::npos);wrong_metadata=false;
+ send(Action::Details,"100");model=send(Action::QueuePlay);TEST_REQUIRE(model.music_active&&model.music_total==2&&model.detail.id=="101");engine.at=1200;send(Action::Tick);send(Action::MusicHome);send(Action::Details,"1");engine.at=2500;model=send(Action::Tick);TEST_REQUIRE(model.detail.id=="1"&&model.music_now[0].id=="101"&&last_timeline.find("ratingKey=101")!=std::string::npos);
+ model=send(Action::MusicOpen);TEST_REQUIRE(model.detail.id=="101");send(Action::MusicShuffle);model=send(Action::MusicRepeat);TEST_REQUIRE(model.music_shuffle&&model.music_repeat==1);model=send(Action::MusicNext);TEST_REQUIRE(model.detail.id=="102");model=send(Action::MusicPrevious);TEST_REQUIRE(model.detail.id=="101");
+ engine.at=30000;engine.state.ended=true;engine.state.playing=false;model=send(Action::Tick);TEST_REQUIRE(model.detail.id=="102"&&model.music_active);engine.at=0;send(Action::Stop,"","12345");TEST_REQUIRE(last_timeline.find("time=12345")!=std::string::npos);
+ send(Action::Details,"1");send(Action::Settings);send(Action::Quality);send(Action::AutoPlay);send(Action::Setting,"audio");model=send(Action::Back);TEST_REQUIRE(model.screen==Screen::Details&&model.quality==plex::Quality::Automatic&&!model.autoplay&&model.audio_preference=="eng");
+ model=send(Action::Setting,"theme");TEST_REQUIRE(model.preferences.theme==1);model=send(Action::Setting,"safe_area");TEST_REQUIRE(model.preferences.safe_area==3);model=send(Action::Setting,"artwork");TEST_REQUIRE(!model.preferences.artwork);model=send(Action::Diagnose);TEST_REQUIRE(model.connected&&model.message.find("HTTPS")!=std::string::npos&&!model.build_sha.empty());
+ send(Action::Home,"profiles");model=send(Action::Profile,"1");TEST_REQUIRE(model.preferences.theme==1&&model.preferences.safe_area==3&&!model.preferences.artwork);
+ TEST_REQUIRE(seek_position(INT64_MAX-10,60000,0)==INT64_MAX&&seek_position(0,INT64_MIN,0)==0);
+ PreferenceStore other;TEST_REQUIRE(other.bind(root,"7/other/server")&&other.value.theme==0);uint64_t bytes=0;TEST_REQUIRE(plex::surface_bytes(1920,1088,8,8,64u*1024*1024,bytes)&&bytes==25067520);TEST_REQUIRE(!plex::surface_bytes(3840,2160,10,16,64u*1024*1024,bytes));TEST_REQUIRE(!plex::surface_bytes(UINT64_MAX-1,2,10,32,UINT64_MAX,bytes));
+ // Installed resources are bounded and cannot traverse directories or symlinks.
+ std::filesystem::create_directory(root+"/licenses");std::string notice;{auto path=root+"/licenses/notice.txt";FILE *f=fopen(path.c_str(),"w");TEST_REQUIRE(f);TEST_REQUIRE(fputs("Fixture license text",f)>=0);TEST_REQUIRE(fclose(f)==0);}
+ TEST_REQUIRE(resource_text(root,"licenses/notice.txt",100,notice)&&notice=="Fixture license text");TEST_REQUIRE(!resource_text(root,"../account.json",100,notice));std::filesystem::create_symlink(root+"/account.json",root+"/licenses/link");TEST_REQUIRE(!resource_text(root,"licenses/link",100,notice));
+ auto schema_path=root+"/application-preferences-v1.json";TEST_REQUIRE(write_private_json(schema_path,plex::Json{{"schema",99}}));PreferenceStore unknown;TEST_REQUIRE(!unknown.bind(root,"7/1/server")&&!unknown.save());plex::Json unchanged;TEST_REQUIRE(read_private_json(schema_path,unchanged)&&plex::number(unchanged,"schema")==99);
+ plex::Item huge;huge.media=plex::Json::array({{{"description",std::string(600000,'x')}}});TEST_REQUIRE(!cacheable_detail(huge));
+ home_offline=true;model=send(Action::Home,"","refresh");TEST_REQUIRE(model.home_stale&&!model.rails.empty());home_offline=false;home_empty=true;model=send(Action::Home,"","refresh");TEST_REQUIRE(model.rails.empty());model=send(Action::Home);TEST_REQUIRE(model.rails.empty());
+ send(Action::SignOut);std::filesystem::remove_all(root);std::cout<<"PASS: extended Home, scoped grouped search, released sorting and 3700-item paging, restart/chapters/fast seek, failed-decoder resume, explicit watched state, metadata identity, background music queue/repeat/shuffle/next/previous/end, settings persistence/isolation/build info, cache admission and bounded surface pressure\n";
+}

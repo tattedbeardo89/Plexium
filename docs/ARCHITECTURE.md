@@ -65,3 +65,16 @@ an isolated Stage 1 runtime, a checked pthread session worker and a closeable,
 bounded render-thread media queue. The native build defaults to startup-only;
 full application construction requires `PLEX_STARTUP_ONLY=0`. See
 [NATIVE-REBUILD.md](NATIVE-REBUILD.md) for exact scope, limits and hardware gates.
+
+## Full-client feature extension
+
+The current matrix is [FEATURE-COMPLETION.md](FEATURE-COMPLETION.md), superseding the
+historical feature gaps above. `app/features.cc` owns the worker-side scoped search,
+settings, notices and music queue. `app/view_features.cc` and `app/canvas.h` share the
+production native drawing components; no separate frontend is introduced. Heavy
+Details/Stop/Tick and feature work use separate worker frames so the existing immediate
+startup/dispatch stack limits remain enforced. Music keeps a canonical worker-owned
+playing item while navigation changes the browsed item, preventing progress from being
+attributed to the wrong title. It releases the prior player/session before queue moves.
+Cached metadata above the admission threshold remains usable for the current item but
+is not duplicated into detail caches. Hardware and DVR gates remain unchanged.

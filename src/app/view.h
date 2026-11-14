@@ -18,7 +18,10 @@ class View {
  std::string listing_focus;
  int detail_panel=3;
  float detail_scroll=0;
- int guide_row=0,guide_program=0;
+ int guide_row=0,guide_program=0,settings_section=0;
+ std::optional<Command> notices_frame(const Model&,unsigned,Canvas&);
+ std::optional<Command> settings_frame(const Model&,unsigned,Canvas&);
+ std::optional<Command> music_frame(const Model&,unsigned,Canvas&);
  std::optional<Command> guide_frame(const Model&,unsigned,Canvas&);
  std::optional<Command> details_frame(const Model&,unsigned,Canvas&);
  public:

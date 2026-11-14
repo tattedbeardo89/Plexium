@@ -20,7 +20,17 @@ for name in PS5_Vulkan PS5_PayloadSDK PS5_Mesa; do
  git -C "$root" diff --exit-code --quiet
  # Source kit creation reads origins only as source metadata, never credentials.
 done
-fingerprint=$(find ci/build-lock.json ci/source-checksums.txt ps5 patches -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
+fingerprint=$(python3 ci/dependency-fingerprint.py)
+# Migrate only a marker matching every current dependency input plus the
+# immutable prior title script. No SDK, recipe, module, patch or digest drift
+# may reuse that marker. The title/application is always rebuilt below.
+if [[ -f $VLC_PS5_WORK/.ci-dependencies && $(cat "$VLC_PS5_WORK/.ci-dependencies") != "$fingerprint" ]]; then
+ legacy=$(python3 ci/dependency-fingerprint.py --legacy-reference 1ea1325f85739daf9c553710a4a0ea099cd8b331)
+ if [[ $(cat "$VLC_PS5_WORK/.ci-dependencies") == "$legacy" ]]; then
+  printf '%s\n' "$fingerprint" > "$VLC_PS5_WORK/.ci-dependencies"
+  echo 'Verified legacy dependency marker; only application title-script identity excluded.'
+ fi
+fi
 if [[ ! -f $VLC_PS5_WORK/.ci-dependencies || $(cat "$VLC_PS5_WORK/.ci-dependencies") != "$fingerprint" ]]; then
  bash ci/bootstrap-sdk.sh
  bash ci/bootstrap-native-runtime.sh

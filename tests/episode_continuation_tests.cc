@@ -36,5 +36,6 @@ int main(){
  model=send(Action::Tick);TEST_REQUIRE(model.autoplay_remaining==10);auto opens=engine.opens;
  model=send(Action::Settings);TEST_REQUIRE(model.screen==Screen::Settings&&model.autoplay_remaining==0);clock+=20;send(Action::Tick);TEST_REQUIRE(engine.opens==opens);
  model=send(Action::Back);TEST_REQUIRE(model.screen==Screen::Details&&model.autoplay_remaining==0);send(Action::Tick);TEST_REQUIRE(engine.opens==opens);
+ send(Action::Details,"1");send(Action::Play);send(Action::Tick);engine.observation.ended=true;engine.observation.playing=false;model=send(Action::Tick);TEST_REQUIRE(model.autoplay_remaining==10);opens=engine.opens;model=send(Action::Search);TEST_REQUIRE(model.screen==Screen::Search&&model.autoplay_remaining==0);clock+=20;send(Action::Tick);TEST_REQUIRE(engine.opens==opens);
  send(Action::SignOut);std::filesystem::remove_all(root);std::cout<<"PASS: Plex episode order, watched skip, intro marker, end detection, countdown/cancel, fresh next resume and prior-player cleanup\n";
 }

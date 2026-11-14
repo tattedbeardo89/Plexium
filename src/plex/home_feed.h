@@ -39,8 +39,8 @@ inline Json ordered_home(const Json &source){
 }
 inline Result home_feed(Client &client,const std::string &base,const std::string &token,
                         const std::vector<Item> &sections,const std::function<bool()> &current=[] {return true;},
-                        const std::function<void(const Json&)> &publish={},bool fast=false) {
-    std::map<std::string,std::vector<Item>> slots;Json warnings=Json::array();
+                        const std::function<void(const Json&)> &publish={},bool fast=false,bool extended=false) {
+    std::map<std::string,std::vector<Item>> slots;Json additional=Json::array();Json warnings=Json::array();int succeeded=0,failed=0,last_status=0;bool expired=false;
     std::set<std::string> authorized;for(const auto &section:sections)authorized.insert(section.id);
     auto snapshot=[&] {
         Json rows=Json::array();for(const auto &id:home_order()) {
@@ -49,7 +49,8 @@ inline Result home_feed(Client &client,const std::string &base,const std::string
             else if(id.find("Added")!=std::string::npos)std::stable_sort(entries.begin(),entries.end(),[](const Item &a,const Item &b){return a.added==b.added?stable_media_identity(a)<stable_media_identity(b):a.added>b.added;});
             Json values=Json::array();for(const auto &item:entries){values.push_back(item_json(item));if(values.size()==12)break;}
             rows.push_back({{"id",id},{"title",semantic_title(id,id)},{"continuing",id=="continueWatching"},{"payload",{{"MediaContainer",{{"Metadata",values}}}}}});
-        }return Json{{"rows",rows},{"warnings",warnings}};
+        }if(extended)for(const auto &row:additional){if(rows.size()>=12)break;rows.push_back(row);}
+        return Json{{"rows",rows},{"warnings",warnings},{"partial",failed>0}};
     };
     auto merge=[&](const std::string &id,const Json &payload,const std::string &section="") {
         if(std::find(home_order().begin(),home_order().end(),id)==home_order().end())return;
@@ -71,7 +72,7 @@ inline Result home_feed(Client &client,const std::string &base,const std::string
         }
         if(publish && current())publish(snapshot());
     };
-    auto get=[&](const std::string &path){return current()?client.call("GET",base,path,token):Result{{},"Home loading cancelled",0};};
+    auto get=[&](const std::string &path){if(!current())return Result{{},"Home loading cancelled",0};auto result=client.call("GET",base,path,token);if(result)++succeeded;else{++failed;last_status=result.status;expired|=result.status==401||result.status==403;}return result;};
     auto load_continuing=[&]{
         auto cw=get("/hubs/continueWatching?X-Plex-Container-Start=0&X-Plex-Container-Size=12");
         if(cw)merge("continueWatching",cw.data);else warnings.push_back("Continue Watching unavailable on this server (HTTP "+std::to_string(cw.status)+")");
@@ -83,11 +84,16 @@ inline Result home_feed(Client &client,const std::string &base,const std::string
                 auto scope=text(hub,"librarySectionID",number(hub,"librarySectionID")>0?std::to_string(number(hub,"librarySectionID")):"");
                 if(!scope.empty() && !authorized.count(scope))continue;
                 merge(hub_semantic(hub),Json{{"MediaContainer",hub}},scope);
+                if(extended&&additional.size()<6&&std::find(home_order().begin(),home_order().end(),hub_semantic(hub))==home_order().end()){
+                    auto entries=items(Json{{"MediaContainer",hub}},false);entries.erase(std::remove_if(entries.begin(),entries.end(),[&](const Item&i){return !i.section_id.empty()&&!authorized.count(i.section_id);}),entries.end());
+                    if(!entries.empty()){Json values=Json::array();for(const auto &item:entries){values.push_back(item_json(item));if(values.size()==12)break;}auto id=hub_semantic(hub);if(id.empty())id=text(hub,"hubIdentifier",text(hub,"key"));if(!id.empty()&&std::none_of(additional.begin(),additional.end(),[&](const Json&r){return text(r,"id")==id;}))additional.push_back({{"id",id},{"title",text(hub,"title","From your libraries")},{"payload",{{"MediaContainer",{{"Metadata",values}}}}}});}
+                }
             }
-        }}
+        }}if(extended&&publish&&current())publish(snapshot());
     };
     if(fast){load_hubs();if(slots["continueWatching"].empty()&&current())load_continuing();}
     else {load_continuing();load_hubs();}
+    if(extended&&expired)return {{},"Home profile authorization expired",401};
     struct Category {const char *id,*type,*path;};
     const Category categories[]={
         {"recentlyReleasedMovies","movie","/all?type=1&sort=originallyAvailableAt:desc"},
@@ -97,13 +103,17 @@ inline Result home_feed(Client &client,const std::string &base,const std::string
     for(const auto &category:categories){
         if(fast && !slots[category.id].empty())continue;
         int queried=0;for(const auto &section:sections){
+        if(extended&&expired)return {{},"Home profile authorization expired",401};
         if(!current())return fast && !snapshot()["rows"].empty()?Result{snapshot(),"",200}:Result{{},"Home loading cancelled",0};
         if(section.type!=category.type || personal_library(section))continue;
         if(++queried>32){warnings.push_back("Home aggregation capped at 32 authorized sections per category");break;}
         auto result=get("/library/sections/"+encode(section.id)+category.path+"&X-Plex-Container-Size=12");
         if(result)merge(category.id,result.data,section.id);
     }}
+    if(extended&&expired)return {{},"Home profile authorization expired",401};
     if(!current() && !(fast && !snapshot()["rows"].empty()))return {{},"Home loading cancelled",0};
+    if(extended&&expired)return {{},"Home profile authorization expired",401};
+    if(extended&&succeeded==0&&failed>0)return {{},"Home is unavailable",last_status};
     return {snapshot(),"",200};
 }
 }

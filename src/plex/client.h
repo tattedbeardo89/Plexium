@@ -42,6 +42,7 @@ struct Server {
     bool https_required = false;
 };
 struct Credit {std::string name,role,thumb;};
+struct Chapter {std::string title;int64_t begins=0,ends=0;};
 struct Marker {std::string type;int64_t begins=0,ends=0;};
 struct Item {
     std::string id, key, type, title, summary, thumb, art;
@@ -60,6 +61,7 @@ struct Item {
     std::vector<std::string> directors;
     std::vector<Credit> credits;
     std::vector<Marker> markers;
+    std::vector<Chapter> chapters;
 };
 struct Pin {
     int64_t id = 0;

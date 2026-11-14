@@ -16,6 +16,7 @@ struct StreamPlan {
     Playback playback;
     std::string session,server_mode;
     bool subtitles_burned=false;
+    int decision_status=0;bool negotiation_attempted=false;
 };
 inline std::string universal_query(const Item &i,size_t version,const std::string &session,Quality quality,bool local,const TrackSelection &selection={}) {
     quality=static_cast<Quality>(std::clamp(static_cast<int>(quality),0,6));
@@ -49,31 +50,32 @@ inline StreamPlan negotiate_video(Client &client,const std::string &base,const s
     }
     auto query=universal_query(item,version,session,quality,local,selection);
     auto decision=client.call("GET",base,"/video/:/transcode/universal/decision"+query,token);
-    if(!decision)return {{Mode::Unsupported,"",decision.error},"",""};
+    if(!decision)return {{Mode::Unsupported,"",decision.error},"","",false,decision.status,true};
+    auto invalid=[&](const std::string &message){return StreamPlan{{Mode::Unsupported,"",message},"","",false,decision.status,true};};
     auto mc=decision.data.find("MediaContainer");
-    if(mc==decision.data.end() || !mc->is_object())return {{Mode::Unsupported,"","No server playback decision"},"",""};
+    if(mc==decision.data.end() || !mc->is_object())return invalid("No server playback decision");
     int64_t code=number(*mc,"generalDecisionCode",number(*mc,"mdeDecisionCode",-1));
-    if(code<1000 || code>=2000)return {{Mode::Unsupported,"","Server rejected streaming decision (code "+std::to_string(code)+")"},"",""};
+    if(code<1000 || code>=2000)return invalid("Server rejected streaming decision (code "+std::to_string(code)+")");
     auto entries=mc->find("Metadata");
-    if(entries==mc->end() || !entries->is_array() || entries->empty())return {{Mode::Unsupported,"","Server decision has no media"},"",""};
-    const auto &entry=(*entries)[0];if(!text(entry,"ratingKey").empty() && text(entry,"ratingKey")!=item.id)return {{Mode::Unsupported,"","Server decision identity mismatch"},"",""};auto versions=entry.find("Media");
-    if(versions==entry.end() || !versions->is_array() || versions->empty())return {{Mode::Unsupported,"","Server decision has no media version"},"",""};
+    if(entries==mc->end() || !entries->is_array() || entries->empty())return invalid("Server decision has no media");
+    const auto &entry=(*entries)[0];if(!text(entry,"ratingKey").empty() && text(entry,"ratingKey")!=item.id)return invalid("Server decision identity mismatch");auto versions=entry.find("Media");
+    if(versions==entry.end() || !versions->is_array() || versions->empty())return invalid("Server decision has no media version");
     const auto &media=(*versions)[0];std::string video=text(media,"videoDecision"),audio=text(media,"audioDecision"),codec=text(media,"videoCodec"),output_audio=text(media,"audioCodec");
     auto parts=media.find("Part");
-    if(parts==media.end() || !parts->is_array() || parts->size()!=1 || !(*parts)[0].is_object())return {{Mode::Unsupported,"","Server output requires exactly one media part"},"",""};
+    if(parts==media.end() || !parts->is_array() || parts->size()!=1 || !(*parts)[0].is_object())return invalid("Server output requires exactly one media part");
     bool burned=false;
     {
         if(video.empty())video=text((*parts)[0],"videoDecision");
         if(audio.empty())audio=text((*parts)[0],"audioDecision");
         auto streams=(*parts)[0].find("Stream");
-        if(streams!=(*parts)[0].end() && streams->is_array())for(const auto &s:*streams){if(number(s,"streamType")==3&&text(s,"decision")=="burn")burned=true;if(number(s,"streamType")==3 && text(s,"decision")=="burn" && selection.subtitle.empty())return {{Mode::Unsupported,"","Server would burn subtitles; select Original quality to keep client subtitle controls"},"",""};if(number(s,"streamType")==1){video=text(s,"decision",video);codec=text(s,"codec",codec);}if(number(s,"streamType")==2){audio=text(s,"decision",audio);output_audio=text(s,"codec",output_audio);}}
+        if(streams!=(*parts)[0].end() && streams->is_array())for(const auto &s:*streams){if(number(s,"streamType")==3&&text(s,"decision")=="burn")burned=true;if(number(s,"streamType")==3 && text(s,"decision")=="burn" && selection.subtitle.empty())return invalid("Server would burn subtitles; select Original quality to keep client subtitle controls");if(number(s,"streamType")==1){video=text(s,"decision",video);codec=text(s,"codec",codec);}if(number(s,"streamType")==2){audio=text(s,"decision",audio);output_audio=text(s,"codec",output_audio);}}
     }
-    if(!selection.subtitle.empty()&&(!burned||video!="transcode"))return {{Mode::Unsupported,"","Server did not confirm the requested subtitle burn-in"},"",""};
-    if(!VideoCapabilities{}.video(codec))return {{Mode::Unsupported,"","Server selected an unsupported video output codec"},"",""};
-    if(video!="copy" && video!="transcode")return {{Mode::Unsupported,"","Server did not identify copy/transcode behavior"},"",""};
-    if(audio!="copy" && audio!="transcode" && !audio.empty())return {{Mode::Unsupported,"","Unsupported server audio decision"},"",""};
-    if(number(media,"width")>1920 || number(media,"height")>1080)return {{Mode::Unsupported,"","Server output exceeds the 1080p policy"},"",""};
-    if(!VideoCapabilities{}.audio(output_audio))return {{Mode::Unsupported,"","Unsupported server audio output codec"},"",""};
+    if(!selection.subtitle.empty()&&(!burned||video!="transcode"))return invalid("Server did not confirm the requested subtitle burn-in");
+    if(!VideoCapabilities{}.video(codec))return invalid("Server selected an unsupported video output codec");
+    if(video!="copy" && video!="transcode")return invalid("Server did not identify copy/transcode behavior");
+    if(audio!="copy" && audio!="transcode" && !audio.empty())return invalid("Unsupported server audio decision");
+    if(number(media,"width")>1920 || number(media,"height")>1080)return invalid("Server output exceeds the 1080p policy");
+    if(!VideoCapabilities{}.audio(output_audio))return invalid("Unsupported server audio output codec");
     auto mode=(video=="copy" && audio!="transcode")?Mode::DirectStream:Mode::Transcode;
     return {{mode,base+"/video/:/transcode/universal/start.m3u8"+query+"&X-Plex-Token="+encode(token),""},session,mode==Mode::DirectStream?"Server decision: Direct Stream":"Server decision: transcode",burned};
 }

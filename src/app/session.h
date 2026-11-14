@@ -11,6 +11,8 @@
 #include "plex/tracks.h"
 #include "plex/live_session.h"
 #include "plex/guide_preferences.h"
+#include "preferences.h"
+#include "notices.h"
 #include <deque>
 #include <thread>
 #include "runtime/owned_jobs.h"
@@ -23,12 +25,19 @@ inline constexpr const char *title_id="PPSA85421";
 inline constexpr const char *data_path=PLEX_STATE_ROOT;
 enum class PlaybackState {Idle,Resolving,Opening,Buffering,Playing,Paused,Seeking,Stopping,Stopped,Error,Released};
 struct PlaybackObservation {bool known=false,playing=false,buffering=false,paused=false,ended=false,failed=false;};
-enum class Screen { Welcome, Linking, Profiles, Pin, Servers, Home, Library, Details, Settings, Search, Playback, Guide, Tracks, Recordings };
-enum class Action { Restore, Link, Poll, Cancel, Profile, Server, Home, Library, Browse, Page, Details, Children, Search, Play, FreeTV, PlayLive, Stop, Settings, SignOut, Back, Pause, Seek, Audio, Subtitle, Tick, LiveTV, GuidePage, TuneChannel, Version, Quality, Tracks, SelectAudio, SelectSubtitle, AutoPlay, CancelNext, PlayNext, SkipMarker, FavoriteChannel, FavoriteFilter, MiniGuide, ChannelStep, LastChannel, Recordings };
+enum class Screen { Welcome, Linking, Profiles, Pin, Servers, Home, Library, Details, Settings, Search, Playback, Guide, Tracks, Recordings, Notices };
+enum class Action { Restore, Link, Poll, Cancel, Profile, Server, Home, Library, Browse, Page, Details, Children, Search, Play, FreeTV, PlayLive, Stop, Settings, SignOut, Back, Pause, Seek, Audio, Subtitle, Tick, LiveTV, GuidePage, TuneChannel, Version, Quality, Tracks, SelectAudio, SelectSubtitle, AutoPlay, CancelNext, PlayNext, SkipMarker, FavoriteChannel, FavoriteFilter, MiniGuide, ChannelStep, LastChannel, Recordings, Restart, MarkWatched, Chapter, FastSeek, PlaybackInfo, RetryPlayback, EpisodePrevious, EpisodeNext, QueuePlay, MusicNext, MusicPrevious, MusicShuffle, MusicRepeat, MusicHome, MusicOpen, Suggest, Setting, Diagnose, Notices, OpenNotice };
 struct Command { Action action; std::string id, text; };
 struct MediaContext {std::string base,token,scope,account_token;};
 struct Destination {std::string id,label;};
 struct Model {
+ Preferences preferences;
+ std::vector<std::string> notice_labels;
+ std::string notice_body,account_label;
+ std::string build_sha,build_date,app_version,runtime_info,audio_preference,subtitle_preference,search_scope;
+ bool connected=false,playback_info=false,home_stale=false,music_active=false,music_shuffle=false;
+ int music_repeat=0,music_cursor=0,music_total=0;
+ std::vector<plex::Item> music_now,music_preview;
  plex::LiveSnapshot live;
  std::vector<plex::Item> recording_rows;
  bool guide_during_live=false;
@@ -75,6 +84,27 @@ class PlaybackPort {
 };
 // All network/storage/player operations execute on one worker, never the render thread.
 class Session {
+ std::vector<Notice> notice_index;
+ std::string account_name;
+ void notice_command(const Command&);
+ plex::Quality preferred_quality=plex::Quality::Original;
+ bool preferred_autoplay=true,audio_preference_dirty=false,subtitle_preference_dirty=false,connection_verified=false;
+ PreferenceStore preferences;
+ plex::AudioQueue audio_queue;
+ plex::Item playing_audio;
+ bool audio_active=false,audio_started=false;int64_t audio_resume=-1;
+ void decorate();
+ bool feature_command(const Command&);
+ void settings_command(const Command&);
+ void search_command(const Command&);
+ void music_command(const Command&);
+ bool music_tick();
+ bool stop_audio(int64_t captured=-1);
+ bool open_audio();
+ void report_audio(const std::string&,int64_t);
+ void details_command(const Command&);
+ void stop_command(const Command&);
+ void tick_command(const Command&);
  plex::Client client;
  std::function<double()> clock;
  std::string root,device,account,account_id,active,base,token,server_id,current_profile;
@@ -84,7 +114,7 @@ class Session {
  PlaybackPort &player;
  std::vector<Model> history;
  std::vector<plex::Hub> cached_home;
- double home_loaded=0;
+ double home_loaded=-1;
  struct CachedPage {Model value;double loaded=0;};
  std::map<std::string,CachedPage> pages;
  std::map<std::string,std::pair<plex::Item,double>> metadata;

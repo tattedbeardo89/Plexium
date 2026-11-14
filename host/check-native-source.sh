@@ -6,6 +6,6 @@ headers=${VULKAN_HEADERS:-/workspace/deps/Vulkan-Headers/include}
 for startup_only in 1 0; do
 g++ -DPLEX_PS5 -DPLEX_STARTUP_ONLY="$startup_only" -std=c++17 -Wall -Wextra -Werror -Wno-misleading-indentation -fno-exceptions -fno-rtti -DVK_NO_PROTOTYPES \
  -Isrc -Ithird_party -Ithird_party/imgui -Ithird_party/stb -Ithird_party/volk -I"$headers" \
- -fsyntax-only src/main.cc src/textures.cc src/app/session.cc src/app/view.cc src/plex/client.cc src/plex/transport_ps5.cc src/plex/artwork.cc
+ -fsyntax-only src/main.cc src/textures.cc src/app/session.cc src/app/features.cc src/app/view.cc src/app/view_features.cc src/plex/client.cc src/plex/transport_ps5.cc src/plex/artwork.cc
 done
 echo 'PASS: native entry, shared application, protocol, PS5 transport and artwork host syntax (not a cross-build)'

@@ -16,7 +16,7 @@ inline Playback audio_direct_play(const std::string &base,const std::string &tok
     const std::set<std::string> codecs={"mp3","aac","flac","alac","pcm","pcm_s16le","pcm_s24le","pcm_s32le","pcm_f32le","vorbis","opus"};
     const std::set<std::string> formats={"mp3","mp4","m4a","m4b","aac","flac","wav","ogg","oga","opus"};
     if(!codecs.count(codec) || !formats.count(fmt))return {Mode::Unsupported,"","Audio codec/container not in compiled adapter capability list"};
-    if(key.rfind("/library/parts/",0)!=0 || key.find_first_of("?#\r\n")!=std::string::npos)return {Mode::Unsupported,"","Invalid audio part"};
+    if(key.rfind("/library/parts/",0)!=0 || key.find_first_of("?#\\\r\n")!=std::string::npos || key.find("..")!=std::string::npos)return {Mode::Unsupported,"","Invalid audio part"};
     return {Mode::DirectPlay,base+key+"?X-Plex-Token="+encode(token),""};
 }
 // Fetch all tracks in bounded pages. Never present a truncated album as complete.

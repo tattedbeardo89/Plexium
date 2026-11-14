@@ -71,7 +71,9 @@ cc "${cflags[@]}" "${cxxflags[@]}" -c "$repo/src/plex/artwork.cc" -o "$work/obj/
 for f in gfx image prefs player mpvshader subconv lang textures main; do
     cc "${cflags[@]}" "${cxxflags[@]}" -c "$repo/src/$f.cc" -o "$work/obj/$f.o"
 done
-for f in session view; do
+app_version=$(sed -n 's/^#define VLC_PS5_VERSION "\([^"]*\)"/\1/p' "$repo/src/platform.h")
+cflags+=("-DPLEX_APP_VERSION=\"$app_version\"")
+for f in session features view view_features; do
     cc "${cflags[@]}" "${cxxflags[@]}" -c "$repo/src/app/$f.cc" -o "$work/obj/app_$f.o"
 done
 "$sdk/bin/prospero-ar" rcs "$work/libprobe.a" "$work"/obj/*.o

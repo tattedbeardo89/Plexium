@@ -1,52 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "view.h"
 #include "browse.h"
+#include "canvas.h"
 #include <cmath>
 namespace plexium {
-struct Canvas {
- std::function<ImTextureID(const plex::Item&,bool)> image;
- std::function<float(ImTextureID)> aspect;
- bool books=false;
- ImDrawList *d=ImGui::GetBackgroundDrawList();
- float s=ImGui::GetIO().DisplaySize.x/1920.f;
- ImU32 ink=IM_COL32(239,239,250,255),muted=IM_COL32(157,161,187,255),accent=IM_COL32(139,118,255,255);
- ImVec2 p(float x,float y){return {x*s,y*s};}
- void box(float x,float y,float w,float h,ImU32 color,float radius=12){d->AddRectFilled(p(x,y),p(x+w,y+h),color,radius*s);}
- void text(float x,float y,const std::string&t,float size=28,ImU32 color=0){d->AddText(ImGui::GetFont(),size*s,p(x,y),color?color:ink,t.c_str());}
- void wrap(float x,float y,const std::string&t,float width,float size=27){d->AddText(ImGui::GetFont(),size*s,p(x,y),muted,t.c_str(),nullptr,width*s);}
- void photo(float x,float y,float w,float h,ImTextureID texture){
-  float ratio=aspect?aspect(texture):0;ImVec2 from{0,0},to{1,1};
-  if(ratio>0){float target=w/h;if(ratio>target){from.x=(1-target/ratio)/2;to.x=1-from.x;}else{from.y=(1-ratio/target)/2;to.y=1-from.y;}}
-  d->AddImage(ImTextureRef(texture),p(x,y),p(x+w,y+h),from,to);
- }
- void button(float x,float y,float w,const std::string&t,bool focused){box(x,y,w,62,focused?accent:IM_COL32(33,35,52,255));text(x+22,y+16,t,27,focused?IM_COL32(15,12,28,255):ink);}
- void brand(){
-  auto shape=[&](std::initializer_list<ImVec2> points,ImU32 color){std::vector<ImVec2> scaled;for(auto point:points)scaled.push_back(p(72+point.x*52/512,62+point.y*52/512));d->AddConvexPolyFilled(scaled.data(),int(scaled.size()),color);};
-  shape({{114,141},{256,76},{398,141},{398,371},{256,436},{114,371}},IM_COL32(41,36,71,255));
-  shape({{151,163},{256,116},{361,163},{361,349},{256,396},{151,349}},accent);
-  shape({{186,186},{256,154},{326,186},{326,326},{256,358},{186,326}},IM_COL32(12,13,24,255));
-  shape({{236,205},{236,307},{303,256}},IM_COL32(215,210,255,255));
-  text(143,63,"plexium",42);
- }
- void card(float x,float y,const plex::Item&i,bool selected){
-  bool square=!books&&(i.type=="album"||i.type=="artist"||i.type=="track"||i.type=="playlist");
-  float h=square?195:270;
-  box(x,y,195,h,IM_COL32(29,30,46,255));auto texture=image?image(i,false):0;
-  if(texture)photo(x,y,195,h,texture);else text(x+16,y+h*.42f,i.type=="category"?"BROWSE":"PLEXIUM",21,muted);
-  if(selected)d->AddRect(p(x-5,y-5),p(x+200,y+h+5),accent,14*s,0,4*s);
-  text(x,y+h+14,plex::utf8_prefix(i.title,26),23);
-  std::string subtitle;
-  if(i.type=="episode")subtitle="S"+std::to_string(i.season)+" · E"+std::to_string(i.episode);
-  else if(!i.artist.empty())subtitle=i.artist;
-  else if(i.year)subtitle=std::to_string(i.year);
-  else if(i.type=="artist")subtitle=books?"Author":"Artist";
-  else subtitle=i.type;
-  if(i.type=="track"&&i.duration)subtitle+=" · "+std::to_string(i.duration/60000)+":"+(i.duration/1000%60<10?"0":"")+std::to_string(i.duration/1000%60);
-  text(x,y+h+45,plex::utf8_prefix(subtitle,28),20,muted);
-  if(i.duration>0&&i.offset>0){box(x,y+h-6,195,6,IM_COL32(55,55,70,255),0);box(x,y+h-6,195*std::clamp(double(i.offset)/i.duration,0.,1.),6,accent,0);}
- }
 
-};
 namespace {
 Command command(Action a,std::string id="",std::string text=""){return {a,std::move(id),std::move(text)};}
 Command details(const plex::Item &item){return command(Action::Details,item.id,item.type);}
@@ -55,7 +13,7 @@ Command details(const plex::Item &item){return command(Action::Details,item.id,i
 // frame off the stack of Welcome/Profiles and the first hidden startup frames.
 __attribute__((noinline)) std::optional<Command> View::details_frame(const Model&m,unsigned keys,Canvas&c){
   if(detail_focus!=m.detail.id){detail_focus=m.detail.id;row=0;column=0;detail_panel=3;detail_scroll=0;}
-  if(image){auto poster=image(m.detail,false);auto back=image(m.detail,true);
+  if(image&&m.preferences.artwork){auto poster=image(m.detail,false);auto back=image(m.detail,true);
    if(back){c.photo(400,180,1430,470,back);c.box(400,180,1430,470,IM_COL32(10,11,18,185));}
    float height=!m.books&&(m.detail.type=="artist"||m.detail.type=="album"||m.detail.type=="track")?195:293;
    c.box(425,235,195,height,IM_COL32(31,32,49,255));if(poster)c.photo(425,235,195,height,poster);
@@ -74,6 +32,9 @@ __attribute__((noinline)) std::optional<Command> View::details_frame(const Model
   c.text(685,345,plex::utf8_prefix(context,100),24,c.muted);
   c.wrap(685,391,plex::utf8_prefix(m.detail.summary,530),1080,26);
   bool container=m.detail.type=="show"||m.detail.type=="season"||m.detail.type=="artist"||m.detail.type=="album"||m.detail.type=="collection"||m.detail.type=="playlist";
+  if(!container&&(keys&Square))return command(Action::Restart);
+  if((m.detail.type=="movie"||m.detail.type=="episode")&&(keys&Triangle))return command(Action::MarkWatched);
+  if((m.detail.type=="album"||m.detail.type=="playlist")&&(keys&Square))return command(Action::QueuePlay);
   if(keys&Down){if(row==0){row=1;column=0;}else if(detail_panel==3)++row;else if(detail_panel==1)detail_scroll+=70;}
   if(keys&Up){if(row>0){if(detail_panel==1&&detail_scroll>0)detail_scroll=std::max(0.f,detail_scroll-70);else --row;}column=0;}
   if(keys&Right)++column;if(keys&Left)--column;
@@ -82,7 +43,7 @@ __attribute__((noinline)) std::optional<Command> View::details_frame(const Model
   for(int i=0;i<4;++i)c.button(680+i*270,565,250,labels[i],row==0&&column==i);
   if(!container&&m.detail.media.is_array()&&!m.detail.media.empty()){
    c.text(680,625,"Version "+std::to_string(m.media_version+1)+" / "+std::to_string(m.detail.media.is_array()?m.detail.media.size():0)+" · "+plex::quality_name(m.quality),22,c.muted);
-   c.text(680,655,"L1: version   R1: quality   Options: audio / subtitles",20,c.muted);
+   c.text(680,655,"L1 Version · R1 Quality · Options Tracks · Square Restart · Triangle Watched",20,c.muted);
    if(keys&Options)return command(Action::Tracks);
    if(keys&L1)return command(Action::Version);if(keys&R1)return command(Action::Quality);
   }
@@ -100,7 +61,7 @@ __attribute__((noinline)) std::optional<Command> View::details_frame(const Model
    for(int i=first;i<std::min(count,first+12);++i){int at=i-first;float x=425+(at%4)*345,y=755+(at/4)*85;
     auto name=m.detail.credits.empty()?m.detail.cast[i]:m.detail.credits[i].name;
     c.box(x,y,320,72,row>0&&i==column?c.accent:IM_COL32(33,35,52,255));
-    if(!m.detail.credits.empty()&&image){plex::Item person;person.type="person";person.thumb=m.detail.credits[i].thumb;auto t=image(person,false);if(t)c.d->AddImage(ImTextureRef(t),c.p(x,y),c.p(x+56,y+72));}
+    if(!m.detail.credits.empty()&&image&&m.preferences.artwork){plex::Item person;person.type="person";person.thumb=m.detail.credits[i].thumb;auto t=image(person,false);if(t)c.d->AddImage(ImTextureRef(t),c.p(x,y),c.p(x+56,y+72));}
     c.text(x+65,y+8,plex::utf8_prefix(name,23),21);
     if(!m.detail.credits.empty())c.text(x+65,y+39,plex::utf8_prefix(m.detail.credits[i].role,28),17,c.muted);
    }
@@ -110,7 +71,7 @@ __attribute__((noinline)) std::optional<Command> View::details_frame(const Model
    if(!m.detail_rails.empty()){
     row=std::clamp(row,0,int(m.detail_rails.size()));const auto &rail=m.detail_rails[row>0?row-1:0];
     column=std::clamp(column,0,std::max(0,int(rail.entries.size())-1));int first=std::max(0,column-5);
-    c.text(425,690,rail.title,32);if(image&&!rail.entries.empty())image(rail.entries[column],false);
+    c.text(425,690,rail.title,32);if(image&&m.preferences.artwork&&!rail.entries.empty())image(rail.entries[column],false);
     for(int i=first;i<std::min(int(rail.entries.size()),first+6);++i)c.card(425+(i-first)*230,745,rail.entries[i],row>0&&i==column);
     if(row>0&&(keys&Cross)&&!rail.entries.empty())return details(rail.entries[column]);
    }else c.text(425,720,m.busy?"Loading more information…":"No related titles were supplied by this server.",25,c.muted);
@@ -148,7 +109,7 @@ __attribute__((noinline)) std::optional<Command> View::guide_frame(const Model&m
   const auto &channel=guide.channels[row];float y=top+(guide.mini?row-size_t(guide_row):row)*height;
   c.box(100,y,285,height-5,int(row)==guide_row?c.accent:IM_COL32(33,35,52,255));
   float label_x=115;
-  if(image&&!channel.thumb.empty()){plex::Item logo;logo.id=channel.id;logo.type="channel";logo.thumb=channel.thumb;auto texture=image(logo,false);if(texture){c.photo(110,y+12,54,54,texture);label_x=175;}}
+  if(image&&m.preferences.artwork&&!channel.thumb.empty()){plex::Item logo;logo.id=channel.id;logo.type="channel";logo.thumb=channel.thumb;auto texture=image(logo,false);if(texture){c.photo(110,y+12,54,54,texture);label_x=175;}}
   c.text(label_x,y+12,plex::utf8_prefix(std::string(channel.favorite?"* ":"")+channel.number+"  "+channel.title,label_x>115?17:24),23);
   c.box(left,y,width,height-5,IM_COL32(23,25,39,255));
   if(channel.programs.empty())c.text(left+18,y+25,"Guide information unavailable",24,c.muted);
@@ -180,7 +141,7 @@ __attribute__((noinline)) std::optional<Command> View::guide_frame(const Model&m
  return {};
 }
 std::optional<Command> View::frame(const Model&m,unsigned keys,float dt){
- Canvas c;c.image=image;c.aspect=aspect;c.books=m.books;if(m.screen!=Screen::Playback)c.box(0,0,1920,1080,IM_COL32(10,11,18,255),0);
+ Canvas c;c.configure(m);c.image=m.preferences.artwork?image:decltype(image){};c.aspect=aspect;c.books=m.books;if(m.screen!=Screen::Playback)c.box(0,0,1920,1080,IM_COL32(10,11,18,255),0);
  if(m.screen!=Screen::Playback)c.d->AddRectFilledMultiColor(c.p(600,0),c.p(1920,800),IM_COL32(34,24,62,255),IM_COL32(18,30,57,255),IM_COL32(10,11,18,255),IM_COL32(10,11,18,255));
  if(m.screen==Screen::Playback)c.box(0,0,1920,1080,IM_COL32(0,0,0,0),0);
  if(m.screen!=Screen::Playback)c.brand();
@@ -188,7 +149,9 @@ std::optional<Command> View::frame(const Model&m,unsigned keys,float dt){
  if(m.screen==Screen::Library){auto identity=m.library_id+":"+m.library_tab+":"+m.library_path+":"+std::to_string(m.page_start);if(identity!=listing_focus){listing_focus=identity;row=m.library_id.empty()?0:-1;column=0;auto tabs=library_tabs(m.library_type,m.books);for(size_t i=0;i<tabs.size();++i)if(tabs[i].first==m.library_tab)column=int(i);}}
  if(m.busy&&m.screen!=Screen::Playback){c.text(1550,80,"Loading…",25,c.muted);keys&=Circle;}
  if(!m.message.empty()){float message_y=m.screen==Screen::Guide?945:850;c.box(420,message_y,1400,62,IM_COL32(60,32,48,255));c.wrap(447,message_y+10,m.message,1320,24);}
- if(keys&Circle){if(m.autoplay_remaining>0)return command(Action::CancelNext);if(m.screen==Screen::Playback)return command(Action::Stop);if(m.screen==Screen::Linking)return command(Action::Cancel);return command(Action::Back);}
+ if(m.preferences.clock&&m.screen!=Screen::Guide&&m.screen!=Screen::Playback)c.text(1580,80,plex::guide_time(std::time(nullptr)),25,c.muted);
+ if(m.music_active&&m.screen!=Screen::Playback&&m.screen!=Screen::Tracks&&!m.music_now.empty()){c.box(420,945,1400,95,IM_COL32(28,29,46,245));c.text(440,960,plex::utf8_prefix(m.music_now[0].title,70),26);c.text(440,1000,"Square Now playing · "+duration_label(m.music_now[0].offset),21,c.muted);if((keys&Square)&&m.screen!=Screen::Guide)return command(Action::MusicOpen);}
+ if(keys&Circle){if(m.screen==Screen::Notices&&!m.notice_body.empty())return command(Action::Notices);if(m.autoplay_remaining>0)return command(Action::CancelNext);if(m.screen==Screen::Playback)return command(m.detail.type=="track"?Action::MusicHome:Action::Stop);if(m.screen==Screen::Linking)return command(Action::Cancel);return command(Action::Back);}
  switch(m.screen){
  case Screen::Welcome:
   c.text(180,326,"Your library. A bigger stage.",66);c.wrap(183,435,"A cinematic Plex experience for PlayStation 5.\nLink your own Plex account to get started.",1000,31);
@@ -219,22 +182,19 @@ std::optional<Command> View::frame(const Model&m,unsigned keys,float dt){
   for(int i=0;i<int(symbols.size());++i)c.button(185+(i%10)*105,415+(i/10)*86,85,std::string(1,symbols[i]),i==column);
   c.button(185,760,230,"Delete",column==int(symbols.size()));c.button(440,760,280,pin?"Continue":"Search",column==int(symbols.size())+1);
   if(keys&Cross){if(column<int(symbols.size())&&entry.size()<(pin?4u:100u))entry+=symbols[column];else if(column==int(symbols.size())&&!entry.empty())entry.pop_back();else if(column==int(symbols.size())+1){if(pin)return command(Action::Profile,selected_profile,entry);return command(Action::Search,"",entry);}}
-  if(!pin&&!m.entries.empty()){c.text(1000,330,"Results",30);int y=400;for(const auto&i:m.entries){c.text(1000,y,i.title,24);y+=40;if(y>730)break;}c.text(1000,770,"Results navigation pending",22,c.muted);}
+  if(!pin&&(keys&Triangle)&&!entry.empty())return command(Action::Suggest,"",entry);
+  if(!pin&&!m.entries.empty()){c.text(1000,330,"Results",30);int y=400;for(const auto&i:m.entries){c.text(1000,y,i.title,24);y+=40;if(y>730)break;}c.text(1000,770,"Triangle  Search suggestions",22,c.muted);}
   break;}
- case Screen::Settings:
-  c.text(420,235,"Settings & About",55);c.text(425,340,"Plexium · "+std::string(title_id),30);
-  c.text(425,800,"Unofficial Plex client; not affiliated with or endorsed by Plex",22,c.muted);
-  c.wrap(425,415,"Choose version and quality on title details · verified HTTPS · subtitles off by default.\nThis development checkpoint requires physical PS5 acceptance.",1160,28);
-  if(keys&Down)column=1;if(keys&Up)column=0;column=std::clamp(column,0,1);
-  c.button(425,570,650,std::string("Auto-play next episode: ")+(m.autoplay?"On":"Off"),column==0);
-  c.button(425,650,350,"Sign out",column==1);if(keys&Cross)return command(column==0?Action::AutoPlay:Action::SignOut);break;
+ case Screen::Notices:return notices_frame(m,keys,c);
+ case Screen::Settings:return settings_frame(m,keys,c);
  case Screen::Recordings:{
   c.text(105,175,"Plex DVR · Recordings",48);c.text(105,250,"Read-only · recording requests and cancellation require verified permissions",24,c.muted);
   if(keys&Down)++column;if(keys&Up)--column;column=std::clamp(column,0,std::max(0,int(m.recording_rows.size())-1));int first=std::max(0,column-5);
   for(int i=first;i<std::min(int(m.recording_rows.size()),first+6);++i){c.button(105,330+(i-first)*88,1650,plex::utf8_prefix(m.recording_rows[i].title+" · "+m.recording_rows[i].summary,100),i==column);}
   if(m.recording_rows.empty())c.text(105,390,m.busy?"Loading recording schedule…":"No accessible recording rules or scheduled recordings.",27,c.muted);
   if(!m.recording_rows.empty())c.wrap(105,900,plex::utf8_prefix(m.recording_rows[column].summary,240),1600,23);
-  c.text(105,1020,"D-pad Browse   Circle Return",23,c.muted);break;}
+  c.text(105,1020,"D-pad Browse   Cross Open completed recording   Circle Return",23,c.muted);
+  if((keys&Cross)&&!m.recording_rows.empty()&&(m.recording_rows[column].type=="movie"||m.recording_rows[column].type=="episode"))return details(m.recording_rows[column]);break;}
  case Screen::Guide:return guide_frame(m,keys,c);
  case Screen::Tracks:{
   c.text(100,180,"Audio & Subtitles",48);c.text(105,245,plex::utf8_prefix(m.detail.title,95),27,c.muted);
@@ -254,8 +214,15 @@ std::optional<Command> View::frame(const Model&m,unsigned keys,float dt){
    c.box(680,945,1120,80,IM_COL32(42,40,67,255));c.text(700,955,"Next: "+plex::utf8_prefix(m.upcoming.front().title,55)+(m.autoplay_remaining>0?" · "+std::to_string(m.autoplay_remaining)+"s":""),27);
    c.text(700,996,"Triangle  Play next     Circle  Cancel countdown",21,c.muted);if(keys&Triangle)return command(Action::PlayNext);
   }
+  if(m.detail.type=="album"||m.detail.type=="playlist")c.text(680,660,"Square  Play complete queue",23,c.muted);
   return details_frame(m,keys,c);
  case Screen::Playback:{
+  if(m.detail.type=="track")return music_frame(m,keys,c);
+  if(keys&Options)return command(Action::PlaybackInfo);
+  if((keys&(L1|R1))==(L1|R1))return command(Action::RetryPlayback);
+  if((keys&(Left|Square))==(Left|Square))return command(Action::FastSeek,"back");if((keys&(Right|Square))==(Right|Square))return command(Action::FastSeek,"forward");
+  if((keys&(Left|Triangle))==(Left|Triangle))return command(Action::Chapter,"previous");if((keys&(Right|Triangle))==(Right|Triangle))return command(Action::Chapter,"next");
+  if((keys&(L1|Square))==(L1|Square))return command(Action::EpisodePrevious);if((keys&(R1|Square))==(R1|Square))return command(Action::EpisodeNext);
   if(m.detail.type=="channel"&&!m.live.current.id.empty()){
    if(keys&Up)return command(Action::ChannelStep,"next");if(keys&Down)return command(Action::ChannelStep,"previous");if(keys&Square)return command(Action::LastChannel);if(keys&Triangle)return command(Action::LiveTV);
    c.box(100,90,1650,150,IM_COL32(15,16,28,225));c.text(125,115,m.live.current.number+" · "+m.live.current.title,35);c.text(125,180,"Up/Down Channel   Square Last channel   Triangle Guide   Circle Stop",23,c.muted);
@@ -273,13 +240,18 @@ std::optional<Command> View::frame(const Model&m,unsigned keys,float dt){
   if(playback_controls){
    c.box(0,805,1920,275,IM_COL32(10,11,18,235),0);c.text(95,840,m.detail.title,40);
    c.text(95,902,"Cross  Pause / Resume     Left / Right  Seek 10s     L1  Audio     R1  Subtitles     Circle  Stop",25,c.muted);
-   c.text(95,945,std::to_string(m.detail.offset/1000)+" / "+std::to_string(m.detail.duration/1000)+" seconds",23);
+   c.text(95,945,duration_label(m.detail.offset)+" / "+duration_label(m.detail.duration)+" · -"+duration_label(m.detail.duration-m.detail.offset),23);
    if(m.buffering)c.text(1490,945,"Buffering…",24,c.muted);
+   if(m.detail.duration>0)c.box(95,1002,1720*std::clamp(double(m.detail.offset)/m.detail.duration,0.,1.),5,c.accent,0);
   }
+  if(m.playback_info){c.box(100,130,1600,220,IM_COL32(15,16,28,240));c.text(130,155,std::string("Playback · ")+plex::quality_name(m.quality),30);c.text(130,210,"Version "+std::to_string(m.media_version+1)+" · Audio "+std::to_string(m.audio_tracks.size())+" · Subtitles "+std::to_string(m.subtitle_tracks.size()),25);c.text(130,265,"Square+Left/Right 60s · Triangle+Left/Right chapters · L1+R1 retry",23,c.muted);}
   for(const auto &marker:m.detail.markers)if(m.detail.offset>=marker.begins&&m.detail.offset<marker.ends){c.text(1200,990,"Triangle  Skip "+marker.type,24,c.accent);if(keys&Triangle)return command(Action::SkipMarker);break;}
   if(keys&Cross)return command(Action::Pause);if(keys&Left)return command(Action::Seek,"back");if(keys&Right)return command(Action::Seek,"forward");if(keys&L1)return command(Action::Audio);if(keys&R1)return command(Action::Subtitle);break;}
  case Screen::Home:
  case Screen::Library:{
+  if(m.screen==Screen::Home&&(keys&Triangle))return command(Action::Home,"","refresh");
+  if(m.screen==Screen::Library&&(keys&Triangle)&&!m.library_id.empty())return command(Action::Search,m.library_id);
+  c.fit(425,205,1400,m.busy?"Loading…":m.connected?"Connected to "+m.server_name:m.home_stale?"Cached library · server unavailable":"Server status pending",20,c.muted);
   int n=int(m.navigation.size());if(n==0)break;side=std::clamp(side,0,n-1);
   if(keys&L1){side=(side+n-1)%n;sidebar=true;}if(keys&R1){side=(side+1)%n;sidebar=true;}
   if(keys&Options)sidebar=!sidebar;
@@ -296,15 +268,15 @@ std::optional<Command> View::frame(const Model&m,unsigned keys,float dt){
    c.text(425,160,m.library_title.empty()?"Your library":m.library_title,40);
    if(has_tabs){
     if(row<0)column=std::clamp(column,0,int(tabs.size())-1);
-    for(size_t i=0;i<tabs.size();++i)c.button(425+i*235,225,220,tabs[i].second,!sidebar&&row<0&&column==int(i));
+    for(size_t i=0;i<tabs.size();++i)c.button(425+i*(1380.f/tabs.size()),225,1380.f/tabs.size()-10,tabs[i].second,!sidebar&&row<0&&column==int(i));
     if(row<0&&!sidebar&&(keys&Cross))return command(Action::Library,m.library_id,tabs[column].first);
    }
-   if(m.library_tab=="recommended"&&has_tabs){
+   if((m.library_tab=="recommended"&&has_tabs)||m.library_tab=="results"){
     row=std::clamp(row,-1,std::max(-1,int(m.rails.size())-1));
     if(!m.rails.empty()){
      const auto &rail=m.rails[std::max(0,row)];if(row>=0)column=std::clamp(column,0,std::max(0,int(rail.entries.size())-1));
      int chosen=row<0?0:column,first=std::max(0,chosen-5);c.text(425,330,rail.title,33);
-     if(image&&!rail.entries.empty())image(rail.entries[chosen],false);
+     if(image&&m.preferences.artwork&&!rail.entries.empty())image(rail.entries[chosen],false);
      for(int i=first;i<std::min(int(rail.entries.size()),first+6);++i)c.card(425+(i-first)*230,400,rail.entries[i],!sidebar&&row>=0&&i==column);
      if(std::max(0,row)+1<int(m.rails.size()))c.text(425,850,m.rails[std::max(0,row)+1].title+"  ·  Down for more",28,c.muted);
      if((keys&Cross)&&!sidebar&&row>=0&&!rail.entries.empty())return details(rail.entries[column]);

@@ -78,7 +78,8 @@ jobs:
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: .native-cache
-          key: plexium-native-v1-${{ runner.os }}-${{ hashFiles('ci/build-lock.json', 'ci/source-checksums.txt', 'ps5/**', 'patches/**') }}
+          key: plexium-native-v2-${{ runner.os }}-${{ hashFiles('ci/build-lock.json', 'ci/source-checksums.txt', 'ps5/**', '!ps5/build-title.sh', 'patches/**') }}
+          restore-keys: plexium-native-v1-${{ runner.os }}-ade6f78054fccd1e74350f7edf6cde8b4282f4d75f23bbb654c9521a759d0b0d
       - name: Install signed toolchain, build and validate real PS5 title
         id: native
         run: |
@@ -89,7 +90,7 @@ jobs:
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: .native-cache
-          key: plexium-native-v1-${{ runner.os }}-${{ hashFiles('ci/build-lock.json', 'ci/source-checksums.txt', 'ps5/**', 'patches/**') }}
+          key: plexium-native-v2-${{ runner.os }}-${{ hashFiles('ci/build-lock.json', 'ci/source-checksums.txt', 'ps5/**', '!ps5/build-title.sh', 'patches/**') }}
       - name: Upload installation ZIP
         id: install
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

@@ -9,9 +9,9 @@ ifeq ($(SANITIZE),1)
  LDFLAGS += -fsanitize=address,undefined
 endif
 CORE := $(OBJ)/src/plex/client.o $(OBJ)/third_party/tinyxml2/tinyxml2.o
-APP := $(OBJ)/src/app/session.o
+APP := $(OBJ)/src/app/session.o $(OBJ)/src/app/features.o
 IMGUI := $(addprefix $(OBJ)/third_party/imgui/,$(addsuffix .o,imgui imgui_draw imgui_widgets imgui_tables))
-SUITES := dvr-integration-tests live-session-tests episode-continuation-tests durable-progress-tests track-selection-tests progress-journal-tests playback-integration-tests  artwork-tests session-restore-tests state-tests guide-tests startup-runtime-tests runtime-tests session-tests protocol-tests auth-tests home-tests home-feed-tests
+SUITES := client-features-tests dvr-integration-tests live-session-tests episode-continuation-tests durable-progress-tests track-selection-tests progress-journal-tests playback-integration-tests  artwork-tests session-restore-tests state-tests guide-tests startup-runtime-tests runtime-tests session-tests protocol-tests auth-tests home-tests home-feed-tests
 .PHONY: all test clean
 all: $(addprefix $(OUT)/,$(SUITES)) $(OUT)/plexium-render $(OUT)/transport-probe $(OUT)/plexium-cli $(OUT)/plexium-server-check
 $(OUT)/artwork-tests: $(CORE) $(OBJ)/src/plex/artwork.o $(OBJ)/tests/artwork_tests.o
@@ -63,7 +63,7 @@ $(OUT)/transport-probe: $(CORE) $(OBJ)/src/plex/transport_curl.o $(OBJ)/tests/tr
 $(OUT)/plexium-cli: $(CORE) $(APP) $(OBJ)/src/plex/transport_curl.o $(OBJ)/tools/plexium-cli.o
 	@mkdir -p $(dir $@)
 	$(CXX) $^ $(LDFLAGS) $(shell pkg-config --libs libcurl) -o $@
-$(OUT)/plexium-render: $(CORE) $(APP) $(IMGUI) $(OBJ)/src/app/view.o $(OBJ)/tools/render-host.o
+$(OUT)/plexium-render: $(CORE) $(APP) $(IMGUI) $(OBJ)/src/app/view.o $(OBJ)/src/app/view_features.o $(OBJ)/tools/render-host.o
 	@mkdir -p $(dir $@)
 	$(CXX) $^ $(LDFLAGS) -o $@
 $(OBJ)/src/plex/transport_curl.o: CXXFLAGS += $(shell pkg-config --cflags libcurl)
@@ -97,5 +97,15 @@ $(OUT)/plexium-server-check: $(CORE) $(OBJ)/src/plex/transport_curl.o $(OBJ)/too
 	$(CXX) $^ $(LDFLAGS) $(shell pkg-config --libs libcurl) -o $@
 
 $(OUT)/dvr-integration-tests: $(CORE) $(APP) $(OBJ)/tests/dvr_integration_tests.o
+	@mkdir -p $(dir $@)
+	$(CXX) $^ $(LDFLAGS) -o $@
+
+.PHONY: build-info-force
+$(OBJ)/build_identity.h: build-info-force
+	python3 tools/write-build-info.py $@
+$(OBJ)/src/app/features.o: $(OBJ)/build_identity.h
+$(OBJ)/src/app/features.o: CXXFLAGS += -I$(OBJ)
+
+$(OUT)/client-features-tests: $(CORE) $(APP) $(OBJ)/tests/client_features_tests.o
 	@mkdir -p $(dir $@)
 	$(CXX) $^ $(LDFLAGS) -o $@

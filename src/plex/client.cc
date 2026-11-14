@@ -103,6 +103,7 @@ std::vector<Item> items(const Json &j,bool include_media) {
             auto type=text(marker,"type");auto start=number(marker,"startTimeOffset",-1),end=number(marker,"endTimeOffset",-1);
             if((type=="intro"||type=="credits")&&start>=0&&end>start&&(x.duration<=0||end<=x.duration))x.markers.push_back({type,start,end});if(x.markers.size()==32)break;
         }
+        auto chapters=v.find("Chapter");if(chapters!=v.end()&&chapters->is_array())for(const auto &chapter:*chapters){auto start=number(chapter,"startTimeOffset",-1),end=number(chapter,"endTimeOffset",-1);if(start>=0&&end>start&&(x.duration<=0||end<=x.duration))x.chapters.push_back({display_text(text(chapter,"tag",text(chapter,"title","Chapter")),120),start,end});if(x.chapters.size()==128)break;}
         x.watched = number(v, "viewCount") > 0;
         x.artist=display_text(text(v,"grandparentTitle",x.type=="album"?text(v,"parentTitle",text(v,"originalTitle")):text(v,"originalTitle")),256);
         x.album=display_text(text(v,"parentTitle"),256);
