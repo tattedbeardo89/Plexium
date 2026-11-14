@@ -31,5 +31,10 @@ int main(){
  send(Action::Tick);engine.at=90000;engine.observation.ended=true;engine.observation.playing=false;model=send(Action::Tick);TEST_REQUIRE(model.upcoming.size()==1&&model.upcoming[0].id=="4");
  clock+=11;model=send(Action::Tick);TEST_REQUIRE(model.detail.id=="4"&&engine.opens==3&&model.playback_state==PlaybackState::Opening);
  send(Action::Tick);send(Action::AutoPlay);engine.observation.ended=true;engine.observation.playing=false;model=send(Action::Tick);TEST_REQUIRE(model.autoplay_remaining==0&&model.upcoming.empty());
+ // Navigation must not leave an invisible countdown running behind Settings.
+ send(Action::AutoPlay);send(Action::Details,"1");send(Action::Play);send(Action::Tick);engine.observation.ended=true;engine.observation.playing=false;
+ model=send(Action::Tick);TEST_REQUIRE(model.autoplay_remaining==10);auto opens=engine.opens;
+ model=send(Action::Settings);TEST_REQUIRE(model.screen==Screen::Settings&&model.autoplay_remaining==0);clock+=20;send(Action::Tick);TEST_REQUIRE(engine.opens==opens);
+ model=send(Action::Back);TEST_REQUIRE(model.screen==Screen::Details&&model.autoplay_remaining==0);send(Action::Tick);TEST_REQUIRE(engine.opens==opens);
  send(Action::SignOut);std::filesystem::remove_all(root);std::cout<<"PASS: Plex episode order, watched skip, intro marker, end detection, countdown/cancel, fresh next resume and prior-player cleanup\n";
 }

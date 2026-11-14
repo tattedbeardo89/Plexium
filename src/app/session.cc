@@ -364,6 +364,8 @@ Model Session::dispatch(const Command &c){return dispatch_current(c);}
 // Runtime borrows this worker-owned view only until its locked copy completes.
 __attribute__((noinline)) const Model &Session::dispatch_current(const Command &c){
  model.message.clear();
+ // A deliberate user action leaves the countdown; background ticks alone advance it.
+ if(next_deadline>0&&c.action!=Action::Tick&&c.action!=Action::PlayNext){next_deadline=0;model.autoplay_remaining=0;}
  switch(c.action){
  case Action::Restore:{
   clear_context();account.clear();account_id.clear();model=Model{};
