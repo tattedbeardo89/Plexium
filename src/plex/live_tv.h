@@ -46,10 +46,10 @@ inline Result live_channels(Client &client,const std::string &base,const std::st
             auto id=text(provider,"identifier"),path=live_provider(id);if(path.empty())continue;
             auto dvr=id.substr(id.rfind(':')+1);if(!authorized.count(dvr) || ++queried>4)continue;
             std::string previous;
-            for(int start=0;start<1600;++requests,start+=200){
-            if(requests>=8){truncated=true;break;}
+            for(int start=0;start<1600;start+=200){
+            if(requests++>=8){truncated=true;break;}
             auto response=client.call("GET",base,path+"/lineups/dvr/channels?X-Plex-Container-Size=200&X-Plex-Container-Start="+std::to_string(start),token);
-            if(!response){failed=true;lineup_failure=response;break;}
+            if(!response){if(response.status==401||response.status==403)return response;failed=true;lineup_failure=response;break;}
             auto container=response.data.find("MediaContainer");
             if(container==response.data.end() || !container->is_object()){
                 failed=true;lineup_failure={{},"Malformed Plex channel lineup",response.status};break;
@@ -68,11 +68,12 @@ inline Result live_channels(Client &client,const std::string &base,const std::st
                 channels.push_back({{"id",key},{"gridKey",grid},{"provider",id},{"dvr",dvr},{"title",live_label(text(channel,"title",text(channel,"callSign","Channel")))},{"number",text(channel,"vcn")},{"thumb",text(channel,"thumb")}});
             }
             if(entries->empty()||start+int(entries->size())>=number(*container,"totalSize",start+int(entries->size())))break;
+            if(requests>=8){truncated=true;break;}
             }
         }
     }
     if(channels.empty()&&failed)return lineup_failure;
-    return {Json{{"channels",std::move(channels)},{"configured",true},{"truncated",truncated}},"",200};
+    return {Json{{"channels",std::move(channels)},{"configured",true},{"truncated",truncated||failed}},"",200};
 }
 inline Result live_guide(Client &client,const std::string &base,const std::string &token,const Json &channel,const std::string &date,int64_t window_start=0,int64_t window_end=0) {
     auto provider=live_provider(text(channel,"provider")),grid=text(channel,"gridKey");

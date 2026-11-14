@@ -62,5 +62,19 @@ int main(){
  // Incomplete tuning must not allocate a tuner or fabricate a stream URL.
  calls=0;Client no_tune([&](const Request&){++calls;return Reply{};},"fixture");
  TEST_REQUIRE(!live_tune(no_tune,"https://fixture","profile",channel,"consumer")&&calls==0);
+ // Large lineups stay bounded; later-page authorization revocation fails closed.
+ for(int scenario:{0,1,2}){
+  int pages=0;Client large([&](const Request&q){
+   if(q.url.find("/livetv/dvrs")!=std::string::npos)return Reply{200,R"({"MediaContainer":{"Dvr":[{"key":"12"}]}})",""};
+   if(q.url.find("/media/providers")!=std::string::npos)return Reply{200,R"({"MediaContainer":{"MediaProvider":[{"identifier":"tv.plex.providers.epg.xmltv:12"}]}})",""};
+   auto at=q.url.find("X-Plex-Container-Start=");int start=std::stoi(q.url.substr(at+23));++pages;
+   if(scenario==1&&start>0)return Reply{401,"{}",""};
+   if(scenario==2)start=0;Json channels=Json::array();for(int n=start;n<start+200;++n)channels.push_back({{"id","c"+std::to_string(n)},{"gridKey","g"+std::to_string(n)}});
+   return Reply{200,Json{{"MediaContainer",{{"Channel",channels},{"totalSize",4000}}}}.dump(),""};
+  },"fixture");
+  auto lineup=live_channels(large,"https://fixture","profile");
+  if(scenario==1)TEST_REQUIRE(!lineup&&lineup.status==401&&pages==2);
+  else TEST_REQUIRE(lineup&&flag(lineup.data,"truncated")&&lineup.data["channels"].size()==(scenario==0?1600u:200u)&&pages<=8);
+ }
  std::cout<<"PASS: DVR empty/malformed/unauthorized/server failures, scoped channel discovery, guide missing fields/ranges/order, midnight, disabled unverified tuning\n";
 }

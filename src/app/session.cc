@@ -313,7 +313,7 @@ bool Session::live_tv(int offset,int64_t begins,bool refresh){
    else retain_cached();return false;
   }
   model.guide.configured=plex::flag(response.data,"configured");
-  if(plex::flag(response.data,"truncated"))model.message="Channel lineup reached its bounded page limit. Refresh to retry.";
+  if(plex::flag(response.data,"truncated"))model.message="Channel lineup is incomplete or reached its page limit. Refresh to retry.";
   auto channels=response.data.find("channels");if(channels!=response.data.end()&&channels->is_array())personal_channels=*channels;
   std::stable_sort(personal_channels.begin(),personal_channels.end(),[](const auto&a,const auto&b){auto an=plex::channel_order(plex::text(a,"number")),bn=plex::channel_order(plex::text(b,"number"));return an==bn?plex::text(a,"title")<plex::text(b,"title"):an<bn;});
   personal_loaded=now();
