@@ -4,8 +4,8 @@
 #include <ctime>
 namespace plex {
 struct GuideProgram {std::string title,series,summary;int64_t begins=0,ends=0;};
-struct GuideChannel {std::string id,number,title,thumb;std::vector<GuideProgram> programs;};
-struct Guide {std::vector<GuideChannel> channels;int offset=0,total=0;int64_t begins=0,ends=0,refreshed=0;bool configured=false,stale=false;};
+struct GuideChannel {std::string id,number,title,thumb;std::vector<GuideProgram> programs;bool favorite=false;std::string dvr;};
+struct Guide {std::vector<GuideChannel> channels;int offset=0,total=0;int64_t begins=0,ends=0,refreshed=0;bool configured=false,stale=false,favorites_only=false,mini=false;};
 inline std::string guide_date(int64_t seconds){time_t value=seconds;struct tm utc{};if(!gmtime_r(&value,&utc))return {};char out[11];if(!strftime(out,sizeof out,"%Y-%m-%d",&utc))return {};return out;}
 inline std::string guide_time(int64_t seconds){time_t value=seconds;struct tm local{};if(!localtime_r(&value,&local))return {};char out[6];strftime(out,sizeof out,"%H:%M",&local);return out;}
 inline std::vector<GuideProgram> guide_programs(const Json &data,int64_t begins,int64_t ends){
@@ -20,6 +20,7 @@ inline std::vector<GuideProgram> guide_programs(const Json &data,int64_t begins,
  result.erase(std::unique(result.begin(),result.end(),[](const auto&a,const auto&b){return a.begins==b.begins&&a.ends==b.ends&&a.title==b.title;}),result.end());
  return result;
 }
+inline float guide_progress(const GuideProgram &program,int64_t now){if(program.ends<=program.begins)return 0;return float(std::clamp(double(now-program.begins)/double(program.ends-program.begins),0.,1.));}
 // Numeric channel components compare naturally: 2.1, 2.10, 10.1. Labels remain
 // Plex's original values. No narrowing conversion or floating-point rounding.
 inline std::vector<uint64_t> channel_order(const std::string &value){

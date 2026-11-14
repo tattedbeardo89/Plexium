@@ -77,3 +77,11 @@ multi-audio MKV with an embedded SRT plus an external SRT and verifies actual
 VLC track changes through the production Session. Renderer validation now checks
 twelve distinct 1280x720 frames, including tracks, preferences and next episode.
 These fixtures do not verify a real PMS/DVR or physical PS5.
+
+The DVR milestone adds `live-session-tests` and `dvr-integration-tests` to normal,
+ASan/UBSan and NDEBUG runs, plus secure optional real-PMS configuration tests. The
+unconfigured live runner reports SKIP with no network. See PLEX-DVR-CONTRACTS.md
+for the explicit fixture/real-server boundary, disabled production tuning and unresolved
+consumer lifecycle contracts. Native guide raster checks now cover fifteen distinct
+frames, including favorites, Mini Guide and read-only recordings. Real VLC additionally
+covers local HLS negotiated-mode fixtures and actual episode-end/reopen observations.

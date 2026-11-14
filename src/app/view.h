@@ -4,7 +4,7 @@
 #include "imgui.h"
 #include <optional>
 namespace plexium {
-enum Button { Up=1,Down=2,Left=4,Right=8,Cross=16,Circle=32,L1=64,R1=128,Options=256,Triangle=512 };
+enum Button { Up=1,Down=2,Left=4,Right=8,Cross=16,Circle=32,L1=64,R1=128,Options=256,Triangle=512,Square=1024 };
 struct Canvas;
 class View {
  Screen previous=Screen::Welcome;

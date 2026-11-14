@@ -11,9 +11,9 @@ endif
 CORE := $(OBJ)/src/plex/client.o $(OBJ)/third_party/tinyxml2/tinyxml2.o
 APP := $(OBJ)/src/app/session.o
 IMGUI := $(addprefix $(OBJ)/third_party/imgui/,$(addsuffix .o,imgui imgui_draw imgui_widgets imgui_tables))
-SUITES := episode-continuation-tests durable-progress-tests track-selection-tests progress-journal-tests playback-integration-tests  artwork-tests session-restore-tests state-tests guide-tests startup-runtime-tests runtime-tests session-tests protocol-tests auth-tests home-tests home-feed-tests
+SUITES := dvr-integration-tests live-session-tests episode-continuation-tests durable-progress-tests track-selection-tests progress-journal-tests playback-integration-tests  artwork-tests session-restore-tests state-tests guide-tests startup-runtime-tests runtime-tests session-tests protocol-tests auth-tests home-tests home-feed-tests
 .PHONY: all test clean
-all: $(addprefix $(OUT)/,$(SUITES)) $(OUT)/plexium-render $(OUT)/transport-probe $(OUT)/plexium-cli
+all: $(addprefix $(OUT)/,$(SUITES)) $(OUT)/plexium-render $(OUT)/transport-probe $(OUT)/plexium-cli $(OUT)/plexium-server-check
 $(OUT)/artwork-tests: $(CORE) $(OBJ)/src/plex/artwork.o $(OBJ)/tests/artwork_tests.o
 	@mkdir -p $(dir $@)
 	$(CXX) $^ $(LDFLAGS) $(shell pkg-config --libs gnutls) -o $@
@@ -86,4 +86,16 @@ $(OUT)/progress-journal-tests: $(CORE) $(OBJ)/tests/progress_journal_tests.o
 $(OUT)/episode-continuation-tests: $(CORE) $(APP) $(OBJ)/tests/episode_continuation_tests.o
 	$(CXX) $^ $(LDFLAGS) -o $@
 $(OUT)/durable-progress-tests: $(CORE) $(APP) $(OBJ)/tests/durable_progress_tests.o
+	$(CXX) $^ $(LDFLAGS) -o $@
+
+$(OUT)/live-session-tests: $(CORE) $(OBJ)/tests/live_session_tests.o
+	@mkdir -p $(dir $@)
+	$(CXX) $^ $(LDFLAGS) -o $@
+
+$(OUT)/plexium-server-check: $(CORE) $(OBJ)/src/plex/transport_curl.o $(OBJ)/tools/plexium-server-check.o
+	@mkdir -p $(dir $@)
+	$(CXX) $^ $(LDFLAGS) $(shell pkg-config --libs libcurl) -o $@
+
+$(OUT)/dvr-integration-tests: $(CORE) $(APP) $(OBJ)/tests/dvr_integration_tests.o
+	@mkdir -p $(dir $@)
 	$(CXX) $^ $(LDFLAGS) -o $@

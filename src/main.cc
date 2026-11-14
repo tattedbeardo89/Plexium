@@ -74,7 +74,7 @@ struct ApplicationDeleter {
  }
 };
 using ApplicationPtr=std::unique_ptr<Application,ApplicationDeleter>;
-unsigned buttons(uint32_t p){using namespace plexium;unsigned out=0;const uint32_t raw[]={PAD_UP,PAD_DOWN,PAD_LEFT,PAD_RIGHT,PAD_CROSS,PAD_CIRCLE,PAD_L1,PAD_R1,PAD_OPTIONS,PAD_TRIANGLE};for(unsigned i=0;i<10;++i)if(p&raw[i])out|=1u<<i;return out;}
+unsigned buttons(uint32_t p){using namespace plexium;unsigned out=0;const uint32_t raw[]={PAD_UP,PAD_DOWN,PAD_LEFT,PAD_RIGHT,PAD_CROSS,PAD_CIRCLE,PAD_L1,PAD_R1,PAD_OPTIONS,PAD_TRIANGLE,PAD_SQUARE};for(unsigned i=0;i<11;++i)if(p&raw[i])out|=1u<<i;return out;}
 #endif
 }
 static std::atomic<unsigned> native_startup_phase{0};

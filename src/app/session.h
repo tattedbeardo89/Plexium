@@ -9,6 +9,8 @@
 #include "plex/progress_outbox.h"
 #include "plex/progress_journal.h"
 #include "plex/tracks.h"
+#include "plex/live_session.h"
+#include "plex/guide_preferences.h"
 #include <deque>
 #include <thread>
 #include "runtime/owned_jobs.h"
@@ -21,12 +23,15 @@ inline constexpr const char *title_id="PPSA85421";
 inline constexpr const char *data_path=PLEX_STATE_ROOT;
 enum class PlaybackState {Idle,Resolving,Opening,Buffering,Playing,Paused,Seeking,Stopping,Stopped,Error,Released};
 struct PlaybackObservation {bool known=false,playing=false,buffering=false,paused=false,ended=false,failed=false;};
-enum class Screen { Welcome, Linking, Profiles, Pin, Servers, Home, Library, Details, Settings, Search, Playback, Guide, Tracks };
-enum class Action { Restore, Link, Poll, Cancel, Profile, Server, Home, Library, Browse, Page, Details, Children, Search, Play, FreeTV, PlayLive, Stop, Settings, SignOut, Back, Pause, Seek, Audio, Subtitle, Tick, LiveTV, GuidePage, TuneChannel, Version, Quality, Tracks, SelectAudio, SelectSubtitle, AutoPlay, CancelNext, PlayNext, SkipMarker };
+enum class Screen { Welcome, Linking, Profiles, Pin, Servers, Home, Library, Details, Settings, Search, Playback, Guide, Tracks, Recordings };
+enum class Action { Restore, Link, Poll, Cancel, Profile, Server, Home, Library, Browse, Page, Details, Children, Search, Play, FreeTV, PlayLive, Stop, Settings, SignOut, Back, Pause, Seek, Audio, Subtitle, Tick, LiveTV, GuidePage, TuneChannel, Version, Quality, Tracks, SelectAudio, SelectSubtitle, AutoPlay, CancelNext, PlayNext, SkipMarker, FavoriteChannel, FavoriteFilter, MiniGuide, ChannelStep, LastChannel, Recordings };
 struct Command { Action action; std::string id, text; };
 struct MediaContext {std::string base,token,scope,account_token;};
 struct Destination {std::string id,label;};
 struct Model {
+ plex::LiveSnapshot live;
+ std::vector<plex::Item> recording_rows;
+ bool guide_during_live=false;
  Screen screen=Screen::Welcome;
  std::string message,code,profile_name,profile_avatar,server_name,query;
  std::vector<plex::Profile> profiles;
@@ -88,6 +93,13 @@ class Session {
  double channels_loaded=0;
  plex::Json personal_channels=plex::Json::array();
  double personal_loaded=0;
+ plex::GuidePreferences guide_preferences;
+ plex::PmsLiveProtocol live_protocol;
+ std::unique_ptr<plex::LiveTvSession> live_session;
+ void guide_command(const Command&);
+ void live_snapshot();
+ bool tune_channel(const std::string&,const std::string&);
+ void recordings();
  plex::StreamPlan stream;
  std::string stream_base,stream_token;
  plex::ProgressOutbox outbox;
@@ -125,7 +137,7 @@ class Session {
  bool private_root();
  friend class Runtime;
  const Model &dispatch_current(const Command&);
- void clear_context();
+ bool clear_context();
  public:
  Session(plex::Transport,const std::string&,PlaybackPort&,std::function<double()> monotonic_clock={});
  Model dispatch(const Command&);

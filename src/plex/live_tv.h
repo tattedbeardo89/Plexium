@@ -36,7 +36,7 @@ inline Result live_channels(Client &client,const std::string &base,const std::st
     }
     auto providers=client.call("GET",base,"/media/providers",token);if(!providers)return providers;
     Result lineup_failure;bool failed=false;
-    Json channels=Json::array();mc=providers.data.find("MediaContainer");
+    Json channels=Json::array();std::set<std::string> seen;int requests=0;bool truncated=false;mc=providers.data.find("MediaContainer");
     if(mc==providers.data.end() || !mc->is_object())return {{},"Malformed Plex media providers response",providers.status};
     auto provider_list=mc->find("MediaProvider");
     if(provider_list==mc->end() || !provider_list->is_array())return {{},"Unsupported Plex media providers response",providers.status};
@@ -45,27 +45,34 @@ inline Result live_channels(Client &client,const std::string &base,const std::st
         if(list!=mc->end() && list->is_array())for(const auto &provider:*list) {
             auto id=text(provider,"identifier"),path=live_provider(id);if(path.empty())continue;
             auto dvr=id.substr(id.rfind(':')+1);if(!authorized.count(dvr) || ++queried>4)continue;
-            auto response=client.call("GET",base,path+"/lineups/dvr/channels?X-Plex-Container-Size=200",token);
-            if(!response){failed=true;lineup_failure=response;continue;}
+            std::string previous;
+            for(int start=0;start<1600;++requests,start+=200){
+            if(requests>=8){truncated=true;break;}
+            auto response=client.call("GET",base,path+"/lineups/dvr/channels?X-Plex-Container-Size=200&X-Plex-Container-Start="+std::to_string(start),token);
+            if(!response){failed=true;lineup_failure=response;break;}
             auto container=response.data.find("MediaContainer");
             if(container==response.data.end() || !container->is_object()){
-                failed=true;lineup_failure={{},"Malformed Plex channel lineup",response.status};continue;
+                failed=true;lineup_failure={{},"Malformed Plex channel lineup",response.status};break;
             }
             auto entries=container->find("Channel");
-            if(entries==container->end() && number(*container,"size",-1)==0)continue;
+            if(entries==container->end() && number(*container,"size",-1)==0)break;
             if(entries==container->end() || !entries->is_array()){
-                failed=true;lineup_failure={{},"Unsupported Plex channel lineup",response.status};continue;
+                failed=true;lineup_failure={{},"Unsupported Plex channel lineup",response.status};break;
             }
+            auto first=entries->empty()?std::string():text((*entries)[0],"id",std::to_string(number((*entries)[0],"id",-1)));
+            if(start>0&&first==previous){truncated=true;break;}previous=first;
             for(const auto &channel:*entries) {
                 if(!channel.contains("id"))continue;
                 auto key=text(channel,"id",std::to_string(number(channel,"id"))),grid=text(channel,"gridKey");
-                if(!live_identifier(key) || !live_identifier(grid) || channels.size()>=200)continue;
+                if(!live_identifier(key) || !live_identifier(grid) || channels.size()>=1600||!seen.insert(id+"/"+key).second)continue;
                 channels.push_back({{"id",key},{"gridKey",grid},{"provider",id},{"dvr",dvr},{"title",live_label(text(channel,"title",text(channel,"callSign","Channel")))},{"number",text(channel,"vcn")},{"thumb",text(channel,"thumb")}});
+            }
+            if(entries->empty()||start+int(entries->size())>=number(*container,"totalSize",start+int(entries->size())))break;
             }
         }
     }
     if(channels.empty()&&failed)return lineup_failure;
-    return {Json{{"channels",std::move(channels)},{"configured",true}},"",200};
+    return {Json{{"channels",std::move(channels)},{"configured",true},{"truncated",truncated}},"",200};
 }
 inline Result live_guide(Client &client,const std::string &base,const std::string &token,const Json &channel,const std::string &date,int64_t window_start=0,int64_t window_end=0) {
     auto provider=live_provider(text(channel,"provider")),grid=text(channel,"gridKey");
@@ -126,6 +133,10 @@ inline Result live_recordings(Client &client,const std::string &base,const std::
         scheduled.push_back({{"title",live_label(text(*metadata,"title","Scheduled recording"))},{"series",live_label(text(*metadata,"grandparentTitle"))},{"status",live_label(text(grab,"status","Unknown"))},{"beginsAt",begins}});
     }
     return {Json{{"subscriptions",std::move(subscriptions)},{"scheduled",std::move(scheduled)}},"",200};
+}
+// Read-only SDK-established endpoint; unsupported PMS versions may return 404.
+inline Result completed_recordings(Client &client,const std::string &base,const std::string &token){
+ return client.browse(base,token,"/livetv/recordings",0,60);
 }
 inline Result cancel_recording_rule(Client &client,const std::string &base,const std::string &token,const std::string &id) {
     // Re-read using the current profile. Never delete an arbitrary stale/foreign key.

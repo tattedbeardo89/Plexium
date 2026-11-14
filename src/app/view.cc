@@ -119,20 +119,24 @@ __attribute__((noinline)) std::optional<Command> View::details_frame(const Model
 }
 __attribute__((noinline)) std::optional<Command> View::guide_frame(const Model&m,unsigned keys,Canvas&c){
  const auto &guide=m.guide;
- c.text(100,155,guide.stale?"Live TV · Cached":"Live TV",50);c.text(105,220,m.server_name+" · "+m.profile_name,25,c.muted);
+ c.text(100,155,guide.stale?"Live TV · Cached":guide.favorites_only?"Live TV · Favorites":"Live TV",50);c.text(105,220,m.server_name+" · "+m.profile_name,25,c.muted);
  c.text(1510,75,plex::guide_time(std::time(nullptr)),32);
+ if((keys&(L1|R1))==(L1|R1))return command(Action::FavoriteFilter);
+ if((keys&(Square|Options))==(Square|Options))return command(Action::Recordings);
+ if((keys&(Square|Triangle))==(Square|Triangle))return command(Action::MiniGuide);
  if(keys&Options)return command(Action::GuidePage,"refresh");
  if(keys&Triangle)return command(Action::GuidePage,"now");
  if(keys&L1)return command(Action::GuidePage,"earlier");
  if(keys&R1)return command(Action::GuidePage,"later");
  if(guide.channels.empty()){
-  c.wrap(105,360,m.busy?"Loading Plex guide…":guide.configured?"No accessible channels available.":"Plex Web > Settings > Live TV & DVR > Set Up Plex DVR",1600,32);
+  c.wrap(105,360,m.busy?"Loading Plex guide…":guide.favorites_only?"No favorite channels. L1 + R1 shows all channels.":guide.configured?"No accessible channels available.":"Plex Web > Settings > Live TV & DVR > Set Up Plex DVR",1600,32);
   c.text(105,1015,"Circle  Back     Options  Refresh",24,c.muted);return {};
  }
  if(keys&Down){if(guide_row+1>=int(guide.channels.size())&&guide.offset+6<guide.total){guide_row=0;guide_program=0;return command(Action::GuidePage,"next");}++guide_row;}
  if(keys&Up){if(guide_row<=0&&guide.offset>0){guide_row=5;guide_program=0;return command(Action::GuidePage,"previous");}--guide_row;}
  guide_row=std::clamp(guide_row,0,int(guide.channels.size())-1);
  const auto &selected=guide.channels[guide_row];
+ if(keys&Square)return command(Action::FavoriteChannel,selected.id,selected.dvr);
  if(keys&Right){if(guide_program+1>=int(selected.programs.size()))return command(Action::GuidePage,"later");++guide_program;}
  if(keys&Left){if(guide_program<=0)return command(Action::GuidePage,"earlier");--guide_program;}
  guide_program=std::clamp(guide_program,0,std::max(0,int(selected.programs.size())-1));
@@ -140,11 +144,12 @@ __attribute__((noinline)) std::optional<Command> View::guide_frame(const Model&m
  const auto span=std::max<int64_t>(1,guide.ends-guide.begins);
  for(int i=0;i<=4;++i){auto at=guide.begins+i*span/4;c.text(left+i*width/4,275,plex::guide_time(at),23,c.muted);}
  for(size_t row=0;row<guide.channels.size();++row){
-  const auto &channel=guide.channels[row];float y=top+row*height;
+  if(guide.mini&&(int(row)<guide_row||int(row)>guide_row+2))continue;
+  const auto &channel=guide.channels[row];float y=top+(guide.mini?row-size_t(guide_row):row)*height;
   c.box(100,y,285,height-5,int(row)==guide_row?c.accent:IM_COL32(33,35,52,255));
   float label_x=115;
   if(image&&!channel.thumb.empty()){plex::Item logo;logo.id=channel.id;logo.type="channel";logo.thumb=channel.thumb;auto texture=image(logo,false);if(texture){c.photo(110,y+12,54,54,texture);label_x=175;}}
-  c.text(label_x,y+12,plex::utf8_prefix(channel.number+"  "+channel.title,label_x>115?17:24),23);
+  c.text(label_x,y+12,plex::utf8_prefix(std::string(channel.favorite?"* ":"")+channel.number+"  "+channel.title,label_x>115?17:24),23);
   c.box(left,y,width,height-5,IM_COL32(23,25,39,255));
   if(channel.programs.empty())c.text(left+18,y+25,"Guide information unavailable",24,c.muted);
   c.d->PushClipRect(c.p(left,y),c.p(left+width,y+height-5),true);
@@ -158,6 +163,7 @@ __attribute__((noinline)) std::optional<Command> View::guide_frame(const Model&m
    c.text(x+12,y+16,program.title.empty()?"Title unavailable":program.title,24);
    c.text(x+12,y+50,plex::guide_time(program.begins)+" - "+plex::guide_time(program.ends),19,c.muted);
    c.d->PopClipRect();
+   auto progress=plex::guide_progress(program,std::time(nullptr));if(progress>0&&progress<1)c.box(x+3,y+height-10,std::max(1.f,(end-x-6)*progress),3,IM_COL32(105,240,190,255),0);
   }
   c.d->PopClipRect();
  }
@@ -168,8 +174,9 @@ __attribute__((noinline)) std::optional<Command> View::guide_frame(const Model&m
   c.text(105,875,plex::utf8_prefix(program.title+" · "+program.series,95),26);
   c.wrap(105,912,program.summary,1700,23);
  }
- c.text(105,1015,"D-pad  Browse     L1/R1  Time     Triangle  Now     Options  Refresh     Circle  Back",23,c.muted);
- if(keys&Cross)return command(Action::TuneChannel,selected.id);
+ c.text(105,990,"D-pad Browse  L1/R1 Time  Triangle Now  Square Favorite  L1+R1 Favorites",20,c.muted);
+ c.text(105,1020,"Square+Triangle Mini Guide  Square+Options Recordings  Options Refresh  Circle Back",20,c.muted);
+ if(keys&Cross)return command(Action::TuneChannel,selected.id,selected.dvr);
  return {};
 }
 std::optional<Command> View::frame(const Model&m,unsigned keys,float dt){
@@ -221,6 +228,13 @@ std::optional<Command> View::frame(const Model&m,unsigned keys,float dt){
   if(keys&Down)column=1;if(keys&Up)column=0;column=std::clamp(column,0,1);
   c.button(425,570,650,std::string("Auto-play next episode: ")+(m.autoplay?"On":"Off"),column==0);
   c.button(425,650,350,"Sign out",column==1);if(keys&Cross)return command(column==0?Action::AutoPlay:Action::SignOut);break;
+ case Screen::Recordings:{
+  c.text(105,175,"Plex DVR · Recordings",48);c.text(105,250,"Read-only · recording requests and cancellation require verified permissions",24,c.muted);
+  if(keys&Down)++column;if(keys&Up)--column;column=std::clamp(column,0,std::max(0,int(m.recording_rows.size())-1));int first=std::max(0,column-5);
+  for(int i=first;i<std::min(int(m.recording_rows.size()),first+6);++i){c.button(105,330+(i-first)*88,1650,plex::utf8_prefix(m.recording_rows[i].title+" · "+m.recording_rows[i].summary,100),i==column);}
+  if(m.recording_rows.empty())c.text(105,390,m.busy?"Loading recording schedule…":"No accessible recording rules or scheduled recordings.",27,c.muted);
+  if(!m.recording_rows.empty())c.wrap(105,900,plex::utf8_prefix(m.recording_rows[column].summary,240),1600,23);
+  c.text(105,1020,"D-pad Browse   Circle Return",23,c.muted);break;}
  case Screen::Guide:return guide_frame(m,keys,c);
  case Screen::Tracks:{
   c.text(100,180,"Audio & Subtitles",48);c.text(105,245,plex::utf8_prefix(m.detail.title,95),27,c.muted);
@@ -242,6 +256,11 @@ std::optional<Command> View::frame(const Model&m,unsigned keys,float dt){
   }
   return details_frame(m,keys,c);
  case Screen::Playback:{
+  if(m.detail.type=="channel"&&!m.live.current.id.empty()){
+   if(keys&Up)return command(Action::ChannelStep,"next");if(keys&Down)return command(Action::ChannelStep,"previous");if(keys&Square)return command(Action::LastChannel);if(keys&Triangle)return command(Action::LiveTV);
+   c.box(100,90,1650,150,IM_COL32(15,16,28,225));c.text(125,115,m.live.current.number+" · "+m.live.current.title,35);c.text(125,180,"Up/Down Channel   Square Last channel   Triangle Guide   Circle Stop",23,c.muted);
+  }
+
   if(m.detail.type=="track"){
    c.box(0,0,1920,1080,IM_COL32(10,11,18,255),0);c.brand();
    if(image){auto t=image(m.detail,false);if(t)c.d->AddImage(ImTextureRef(t),c.p(180,230),c.p(660,710));}

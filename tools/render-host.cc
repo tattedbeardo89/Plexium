@@ -67,9 +67,13 @@ int main(int argc,char **argv){
  Model settings=m;settings.screen=Screen::Settings;frame("settings",settings);
  Model next=m;next.screen=Screen::Details;next.detail=item;next.upcoming={item};next.autoplay_remaining=8;frame("next-episode",next);
  View track_controls;ImGui::NewFrame();auto track_action=track_controls.frame(tracks,Cross,.016f);ImGui::Render();TEST_REQUIRE(track_action&&track_action->action==Action::SelectAudio&&track_action->id=="10");
+ Model favorite_guide=guide_model;favorite_guide.guide.favorites_only=true;favorite_guide.guide.channels[0].favorite=true;frame("guide-favorites",favorite_guide);
+ Model mini_guide=guide_model;mini_guide.guide.mini=true;frame("guide-mini",mini_guide);
+ Model recordings=guide_model;recordings.screen=Screen::Recordings;plex::Item recording;recording.title="Fixture scheduled series";recording.summary="Scheduled through Plex DVR";recordings.recording_rows={recording};frame("recordings",recordings);
  View guide_view;
  auto guide_input=[&](unsigned keys){ImGui::NewFrame();auto action=guide_view.frame(guide_model,keys,.016f);ImGui::Render();return action;};
  TEST_REQUIRE(guide_input(Cross)->action==Action::TuneChannel);
+ TEST_REQUIRE(guide_input(Square)->action==Action::FavoriteChannel);TEST_REQUIRE(guide_input(L1|R1)->action==Action::FavoriteFilter);TEST_REQUIRE(guide_input(Square|Triangle)->action==Action::MiniGuide);TEST_REQUIRE(guide_input(Square|Options)->action==Action::Recordings);
  TEST_REQUIRE(guide_input(Triangle)->id=="now"&&guide_input(R1)->id=="later"&&guide_input(L1)->id=="earlier");
  for(int i=0;i<5;++i)guide_input(Down);TEST_REQUIRE(guide_input(Down)->id=="next");
  guide_model.guide.offset=6;TEST_REQUIRE(guide_input(Up)->id=="previous");
