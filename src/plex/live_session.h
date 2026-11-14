@@ -12,15 +12,16 @@ struct LiveSnapshot {LiveState state=LiveState::Idle;LiveChannel current,previou
 // DELETE is SDK-confirmed only; consumer/shared-session semantics remain a gate.
 class DvrRequests {
  Client &client;std::string base,token;
+ bool authorized()const{return valid_base(base,false)&&!token.empty();}
  public:
  DvrRequests(Client &c,std::string b,std::string t):client(c),base(std::move(b)),token(std::move(t)){}
  Result tune(const LiveChannel &channel){
-  if(!live_identifier(channel.id)||channel.dvr.empty()||channel.dvr.size()>18||channel.dvr.find_first_not_of("0123456789")!=std::string::npos)return {{},"Invalid DVR channel",0};
+  if(!authorized()||!live_channel_id(channel.id)||channel.dvr.empty()||channel.dvr.size()>18||channel.dvr.find_first_not_of("0123456789")!=std::string::npos)return {{},"Invalid DVR channel",0};
   auto bounded=client.bounded(800,2000);return bounded.call("POST",base,"/livetv/dvrs/"+encode(channel.dvr)+"/channels/"+encode(channel.id)+"/tune",token);
  }
- Result inspect(const std::string &id){if(!live_identifier(id))return {{},"Invalid live session",0};auto bounded=client.bounded(500,1000);return bounded.call("GET",base,"/livetv/sessions/"+encode(id),token);}
+ Result inspect(const std::string &id){if(!authorized()||!live_identifier(id))return {{},"Invalid live session",0};auto bounded=client.bounded(500,1000);return bounded.call("GET",base,"/livetv/sessions/"+encode(id),token);}
  Result release_owned(const LiveLease &lease){
-  if(!lease.owned||!live_identifier(lease.session))return {{},"Live session ownership is not established",0};
+  if(!authorized()||!lease.owned||!live_identifier(lease.session))return {{},"Live session ownership is not established",0};
   auto bounded=client.bounded(500,1000);return bounded.call("DELETE",base,"/livetv/sessions/"+encode(lease.session),token);
  }
 };
@@ -63,8 +64,8 @@ class LiveTvSession {
  const LiveSnapshot &snapshot()const{return view;}
  bool owns_resources()const{return player_active||lease.owned||lease.uncertain||view.state==LiveState::Buffering||view.state==LiveState::Playing;}
  bool start(const LiveChannel &channel,double now){
-  if(!protocol.validated()){view.message="Plex live tuning is unavailable pending verified consumer acquisition and cleanup.";return false;}
-  if(!live_identifier(channel.id)||!live_identifier(channel.dvr)){view.message="Invalid authorized live channel.";return false;}
+  if(!protocol.validated()){view.message="Live TV playback is disabled in this development build; guide browsing and recordings remain available.";return false;}
+  if(!valid_base(base,false)||!live_channel_id(channel.id)||!live_identifier(channel.dvr)){view.message="Invalid authorized live channel.";return false;}
   if(owns_resources()&&!cleanup())return false;
   view.state=LiveState::Resolving;view.message.clear();view.state=LiveState::Acquiring;stopped=false;
   auto acquired=protocol.acquire(channel);lease=std::move(acquired.lease);

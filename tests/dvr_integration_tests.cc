@@ -26,7 +26,7 @@ int main(){
  };
  Session session(transport,root,player,[&]{return clock;});auto send=[&](Action a,std::string id=""){return session.dispatch({a,id,{}});};send(Action::Restore);send(Action::Profile,"1");
  auto model=send(Action::LiveTV);TEST_REQUIRE(model.guide.total==640&&model.guide.channels.size()==6&&lineup_calls==4);auto id=model.guide.channels[0].id;
- model=send(Action::TuneChannel,id);TEST_REQUIRE(player.opens==0&&mutations==0&&model.message.find("pending verified")!=std::string::npos);
+ model=send(Action::TuneChannel,id);TEST_REQUIRE(player.opens==0&&mutations==0&&model.message.find("disabled")!=std::string::npos);
  model=send(Action::FavoriteChannel,id);TEST_REQUIRE(model.guide.channels[0].favorite);model=send(Action::FavoriteFilter);TEST_REQUIRE(model.guide.total==1&&model.guide.favorites_only);
  model=send(Action::MiniGuide);TEST_REQUIRE(model.guide.mini);model=send(Action::Recordings);TEST_REQUIRE(model.screen==Screen::Recordings&&model.recording_rows.size()==3&&mutations==0);
  send(Action::Home,"profiles");send(Action::Profile,"2");model=send(Action::LiveTV);TEST_REQUIRE(profile=="2"&&model.guide.total==640&&!model.guide.favorites_only&&!model.guide.channels[0].favorite);

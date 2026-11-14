@@ -28,6 +28,10 @@ struct DvrFixture:LiveProtocol {
 };
 int main(){
  LiveChannel a{"one","1","First","2.1"},b{"two","1","Second","2.2"};
+ int unsafe_calls=0;Client unsafe([&](const Request&){++unsafe_calls;return Reply{};},"fixture");DvrRequests blocked(unsafe,"http://fixture.test","fixture-profile");
+ TEST_REQUIRE(!blocked.tune(a)&&!blocked.inspect("s")&&!blocked.release_owned({"s","c","",true,false,true})&&unsafe_calls==0);
+ TEST_REQUIRE(live_channel_id("2.1")&&!live_channel_id("..")&&!live_channel_id("bad/path"));
+ {DvrFixture f;LiveTvSession s(f,f.player(),"http://fixture.test");TEST_REQUIRE(!s.start(a,0)&&f.tunes==0);}
  PmsLiveProtocol production;int touched=0;LiveTvSession gated(production,{[&](const std::string&){++touched;return true;},[&]{++touched;return true;}},"https://fixture.test");TEST_REQUIRE(!gated.start(a,0)&&touched==0);
  {DvrFixture f;LiveTvSession s(f,f.player(),"https://fixture.test");TEST_REQUIRE(s.start(a,0)&&s.snapshot().state==LiveState::Buffering);s.tick(1,true,false,false);TEST_REQUIRE(s.snapshot().state==LiveState::Playing);s.tick(11,true,false,false);TEST_REQUIRE(f.pings==1);TEST_REQUIRE(s.step({a,b},1,12)&&s.snapshot().previous.id==a.id);TEST_REQUIRE(f.events[2]=="stop"&&f.events[3]=="release"&&f.events[4]=="acquire");TEST_REQUIRE(s.last(13)&&s.snapshot().current.id==a.id);TEST_REQUIRE(s.shutdown()&&s.stop()&&f.releases==3&&!s.owns_resources());}
  {DvrFixture f;f.authorize=false;LiveTvSession s(f,f.player(),"https://fixture.test");TEST_REQUIRE(!s.start(a,0)&&f.player_opens==0&&f.releases==0);}

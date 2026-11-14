@@ -5,6 +5,7 @@
 namespace plex {
 inline std::string live_label(std::string value){if(value.size()>256)value.resize(256);for(char &c:value)if(static_cast<unsigned char>(c)<32)c=' ';return value;}
 inline bool live_identifier(const std::string &id){return !id.empty() && id.size()<=128 && id.find_first_not_of("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_-")==std::string::npos;}
+inline bool live_channel_id(const std::string &id){return !id.empty()&&id.size()<=128&&id!="."&&id.find("..") == std::string::npos&&id.find_first_not_of("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_-.")==std::string::npos;}
 inline std::string live_provider(const std::string &id) {
     for(const char *kind:{"cloud","xmltv","custom"}) {
         auto prefix=std::string("tv.plex.providers.epg.")+kind+":";
@@ -64,7 +65,7 @@ inline Result live_channels(Client &client,const std::string &base,const std::st
             for(const auto &channel:*entries) {
                 if(!channel.contains("id"))continue;
                 auto key=text(channel,"id",std::to_string(number(channel,"id"))),grid=text(channel,"gridKey");
-                if(!live_identifier(key) || !live_identifier(grid) || channels.size()>=1600||!seen.insert(id+"/"+key).second)continue;
+                if(!live_channel_id(key) || !live_identifier(grid) || channels.size()>=1600||!seen.insert(id+"/"+key).second)continue;
                 channels.push_back({{"id",key},{"gridKey",grid},{"provider",id},{"dvr",dvr},{"title",live_label(text(channel,"title",text(channel,"callSign","Channel")))},{"number",text(channel,"vcn")},{"thumb",text(channel,"thumb")}});
             }
             if(entries->empty()||start+int(entries->size())>=number(*container,"totalSize",start+int(entries->size())))break;
