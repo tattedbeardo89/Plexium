@@ -38,7 +38,7 @@ Reports distinguish:
 End polling has a bounded 5 ms condition-driven interval and twelve-second failure
 deadline. The PMS fixture clock is advanced explicitly for reconnect/backoff; PCM
 measurement uses real monotonic time. A 200 ms timeline-response fault is injected
-only while the outgoing player remains current, exposing work that delays open.
+for every natural stopped update, even after the next player opens; the test asserts one delayed stop response per measured transition. This keeps the fault identical in both source paths.
 Production moves durable stopped-progress transmission after the next open, before
 new playing updates can replace it. Optional health checks also follow open, so
 short repeated tracks do not starve authorization checks. No second native player,
@@ -100,30 +100,44 @@ reuse, port duplication or hardware ABI change is introduced. See
 
 ## Local measured result
 
-A 160-transition run satisfying a minimum 120 seconds of natural playback passed,
-using VLC 3.0.23 on this Linux workspace while other compilation/checks could contend
-for CPU. Four codecs alternate; there is no sample-rate/channel-format change claim.
+Corrected measurements apply the same 200 ms stopped-response delay before and after
+player replacement, with an asserted response count equal to the transition count.
+The earlier conditional-delay fixture understated queue-command duration and is
+superseded. Opening the next player can overlap the server wait with decoding; it
+does not remove the server wait or promise a faster worker-command return.
+
+The corrected run passed **160 transitions in 122.226 seconds**, with exactly 160
+delayed stop responses, using VLC 3.0.23 on this Linux workspace. Four codecs
+alternate; no input sample-rate/channel-layout change is claimed. Other compilation
+and checks could contend for CPU.
 
 | Observation (ms) | Median | P95 | P99 | Maximum |
 | --- | ---: | ---: | ---: | ---: |
-| Scheduled PCM gap | 96.743 | 213.282 | 227.699 | 227.981 |
-| Callback delivery gap | 752.191 | 821.172 | 832.196 | 849.399 |
-| Decoder startup | 2.681 | 8.597 | 16.627 | 33.234 |
-| End detection | 2.508 | 4.904 | 5.223 | 5.578 |
-| Queue advance | 7.887 | 20.218 | 51.564 | 166.585 |
+| Scheduled PCM gap | 94.989 | 212.211 | 217.247 | 218.967 |
+| Decoder startup | 2.656 | 6.887 | 17.123 | 33.856 |
+| End detection | 2.463 | 4.719 | 5.069 | 5.335 |
+| Queue-command duration | 210.209 | 217.201 | 221.658 | 229.644 |
 
-The same instrumented fixture with the baseline production Session/features/music
-translation units (32 transitions) had scheduled-gap median 305.943 ms, P95 418.659 ms,
-maximum 465.753 ms; queue-advance median 211.152 ms, P95 260.694 ms. Baseline P99 is
-omitted because only 32 observations exist. The injected 200 ms outgoing timeline
-wait explains the controlled improvement; these are not universal speed guarantees.
+The controlled baseline source-path comparison received all 32 delayed stop
+responses: scheduled-gap median 297.396 ms, P95 413.982 ms, maximum 417.874 ms;
+queue-command median 210.892 ms, P95 217.655 ms. Baseline P99 is omitted because
+only 32 observations exist. Decoding starts sooner while the worker still waits
+for the same server response. The worker-command duration does not improve by
+200 ms; there is no claim that network latency disappeared.
 
-Warmup-to-peak RSS was 46,874,624 → 47,009,792 bytes (+135,168); glibc in-use storage
-18,176,720 → 18,294,944 (+118,224). Active files stayed six and threads three.
-After stopped shutdown: five files, one thread, glibc in-use 4,466,288 bytes. RSS
-47,034,368 reflects allocator/library retention and is not a leak proof by itself.
-No unexpected playback failures or dropped probe blocks occurred; one missing-file
-failure was injected and recovered deliberately. All 32 reconnect rounds, revocation,
-restart and profile-isolation checks passed. The independent JSON contains sample
-edges, scheduled timestamps and zero-run observations; final CI uploads fresh normal
-and sanitized reports for the delivered source.
+Across 4,912,640 decoded frames, 520 exact-zero frames were isolated zero crossings
+(longest run one); there were zero intra-track PTS holes. No unexpected playback
+failures or dropped probe blocks occurred. One missing-file error was injected
+and recovered deliberately. All 32 reconnect rounds, revocation, restart, profile
+isolation and shutdown checks passed. Physical output underruns remain unobservable.
+
+Warmup-to-peak RSS: 48,418,816 → 48,492,544 bytes (+73,728). Glibc in-use storage:
+18,226,416 → 18,325,520 (+99,104). Active file observations stayed six and threads
+three; after stopped shutdown they were five and one, with allocator in-use
+4,501,808 bytes. Stopped RSS 48,521,216 reflects allocator/library retention, not
+an ownership proof. Raw JSON includes PCM endpoints, paired monotonic/PTS stamps,
+callback-delivery statistics, resource samples and delayed-response counts.
+
+The corrected normal and ASan/UBSan sixteen-transition runs also pass. Clocks are
+paired before PCM scanning/lock delay. Final exact-source CI uploads fresh reports
+and held packages; existing draft PR #2 links the final source identity/evidence.

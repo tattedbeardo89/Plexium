@@ -16,11 +16,12 @@ class AudioProbe {
  void enable(){std::lock_guard<std::mutex> g(mutex);enabled=true;blocks.reserve(8192);}
  void begin(){std::lock_guard<std::mutex> g(mutex);++generation;}
  void record(const void *pcm,unsigned frames,int64_t pts,int64_t vlc_clock){
+  const auto observed=clock(); // Pair clocks before sample scanning/lock delay.
   std::lock_guard<std::mutex> g(mutex);if(!enabled||!pcm||!frames)return;
   if(blocks.size()==8192){++dropped;return;}
   const auto *p=static_cast<const int16_t*>(pcm);unsigned zeros=0,run=0,longest=0,leading=0;
   for(unsigned n=0;n<frames;++n){if(p[n*2]==0&&p[n*2+1]==0){++zeros;++run;if(n==leading)++leading;longest=std::max(longest,run);}else run=0;}
-  blocks.push_back({generation,clock(),pts,vlc_clock,frames,zeros,longest,leading,run,p[0],p[1],p[(frames-1)*2],p[(frames-1)*2+1]});
+  blocks.push_back({generation,observed,pts,vlc_clock,frames,zeros,longest,leading,run,p[0],p[1],p[(frames-1)*2],p[(frames-1)*2+1]});
  }
  std::vector<PcmBlock> take(){std::lock_guard<std::mutex> g(mutex);auto result=std::move(blocks);blocks.clear();blocks.reserve(8192);return result;}
  size_t lost()const{std::lock_guard<std::mutex> g(mutex);return dropped;}
