@@ -132,6 +132,8 @@ bool Session::open_playback(bool force){
  if(model.detail.type!="track"&&!music_focus_video())return false;
  if(reconnect.blocked){model.message="Playback requires renewed Plex authorization.";return false;}
  if(reconnect.offline){auto id=model.detail.id;auto offset=model.detail.offset;bool music=model.detail.type=="track";network_music_resume=false;if(!reconnect_server()){model.message="Playback is waiting for authorized server reconnection.";return false;}if(music){if(model.detail.id!=id)return false;model.detail.offset=offset;}}
+ if(!model.detail.section_id.empty()&&std::none_of(model.sections.begin(),model.sections.end(),[&](const auto&s){return s.id==model.detail.section_id;})){model.playback_state=PlaybackState::Error;model.message="This item's library is no longer authorized.";return false;}
+ if(model.detail.type=="track"&&(!audio_metadata(model.detail)||!audio_queue.current()||audio_queue.current()->id!=model.detail.id)){model.playback_state=PlaybackState::Error;model.message="Music queue access changed during reconnection. Select an accessible track.";return false;}
  if(audio_preference_dirty||subtitle_preference_dirty){auto choice=model.tracks;load_tracks();if(!audio_preference_dirty)model.tracks.audio=choice.audio;if(!subtitle_preference_dirty)model.tracks.subtitle=choice.subtitle;audio_preference_dirty=subtitle_preference_dirty=false;}
  if(!close_stream())return false;
  model.playback_state=PlaybackState::Resolving;if(progress)progress(model);
