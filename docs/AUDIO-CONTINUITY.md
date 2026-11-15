@@ -2,7 +2,7 @@
 
 This measures actual libVLC decoding through the production `Session` music queue,
 not metadata-only state changes. Fixtures are local generated 997 Hz sine tones,
-0.65 seconds each, AAC/MP3/FLAC/Vorbis, rendered as S16N 48 kHz stereo. Plex URLs
+0.65 seconds each for measured transitions, AAC/MP3/FLAC/Vorbis, rendered as S16N 48 kHz stereo. Plex URLs
 are explicitly mapped to those local files by a synthetic transport/player adapter.
 No real PMS, private network, speaker device or PS5 is involved.
 
@@ -35,7 +35,7 @@ Reports distinguish:
   samples between blocks, not a hardware underrun counter.
 - **Device underruns / actual output time:** unobservable; no device is opened.
 
-End polling has a bounded 5 ms condition-driven interval and twelve-second failure
+The short-track harness drives one observed end per recorded transition; it does not issue an unmeasured warmup Tick that could itself advance a track after a scheduler pause. Steady-playing/pre-resolution ticks are exercised separately by the music/VLC integration suites. End polling has a bounded 5 ms condition-driven interval and twelve-second failure
 deadline. The PMS fixture clock is advanced explicitly for reconnect/backoff; PCM
 measurement uses real monotonic time. A 200 ms timeline-response fault is injected
 for every natural stopped update, even after the next player opens; the test asserts one delayed stop response per measured transition. This keeps the fault identical in both source paths.
@@ -77,7 +77,7 @@ allocation ownership proofs. ASan/UBSan independently checks memory misuse; nati
 failure-state quarantine is separately exercised by lifecycle tests. Retained queue,
 cache and pre-resolution accounting is checked against production bounds throughout.
 
-The final phase checks pause/resume, seek, shuffle/repeat, duplicate queue edits,
+The final control/recovery phase opens an eight-second AAC fixture before pause/resume and seek, avoiding a subsecond end racing those controls on a stalled CI runner. It checks shuffle/repeat, duplicate queue edits,
 background navigation, stop/reopen, private restart without autoplay, 32 reconnect
 rounds, a deliberately missing local VLC input followed by reconnect, revocation,
 profile isolation and shutdown during decoding. Transport status 0 combines DNS/TLS/
@@ -106,21 +106,22 @@ The earlier conditional-delay fixture understated queue-command duration and is
 superseded. Opening the next player can overlap the server wait with decoding; it
 does not remove the server wait or promise a faster worker-command return.
 
-The corrected run passed **160 transitions in 122.226 seconds**, with exactly 160
-delayed stop responses, using VLC 3.0.23 on this Linux workspace. Four codecs
-alternate; no input sample-rate/channel-layout change is claimed. Other compilation
-and checks could contend for CPU.
+The corrected harness passed **160 transitions in 122.183 seconds**, with exactly
+160 delayed stop responses, using VLC 3.0.23. Four codecs alternate; other compilation
+could contend for CPU. One observed end produces one recorded advancement; the
+separate eight-second AAC control/recovery phase and sanitized sixteen-transition
+run also pass.
 
 | Observation (ms) | Median | P95 | P99 | Maximum |
 | --- | ---: | ---: | ---: | ---: |
-| Scheduled PCM gap | 94.989 | 212.211 | 217.247 | 218.967 |
-| Decoder startup | 2.656 | 6.887 | 17.123 | 33.856 |
-| End detection | 2.463 | 4.719 | 5.069 | 5.335 |
-| Queue-command duration | 210.209 | 217.201 | 221.658 | 229.644 |
+| Scheduled PCM gap | 95.309 | 211.790 | 222.375 | 224.101 |
+| Decoder startup | 2.670 | 12.672 | 15.937 | 25.817 |
+| End detection | 2.477 | 4.899 | 5.212 | 6.110 |
+| Queue-command duration | 208.664 | 215.017 | 223.113 | 225.491 |
 
 The controlled baseline source-path comparison received all 32 delayed stop
-responses: scheduled-gap median 297.396 ms, P95 413.982 ms, maximum 417.874 ms;
-queue-command median 210.892 ms, P95 217.655 ms. Baseline P99 is omitted because
+responses: scheduled-gap median 296.849 ms, P95 412.869 ms, maximum 414.337 ms;
+queue-command median 208.165 ms, P95 211.971 ms. Baseline P99 is omitted because
 only 32 observations exist. Decoding starts sooner while the worker still waits
 for the same server response. The worker-command duration does not improve by
 200 ms; there is no claim that network latency disappeared.
@@ -131,13 +132,13 @@ failures or dropped probe blocks occurred. One missing-file error was injected
 and recovered deliberately. All 32 reconnect rounds, revocation, restart, profile
 isolation and shutdown checks passed. Physical output underruns remain unobservable.
 
-Warmup-to-peak RSS: 48,418,816 → 48,492,544 bytes (+73,728). Glibc in-use storage:
-18,226,416 → 18,325,520 (+99,104). Active file observations stayed six and threads
+Warmup-to-peak RSS: 48,365,568 → 48,443,392 bytes (+77,824). Glibc in-use storage:
+18,225,504 → 18,325,136 (+99,632). Active file observations stayed six and threads
 three; after stopped shutdown they were five and one, with allocator in-use
-4,501,808 bytes. Stopped RSS 48,521,216 reflects allocator/library retention, not
+4,502,256 bytes. Stopped RSS 48,472,064 reflects allocator/library retention, not
 an ownership proof. Raw JSON includes PCM endpoints, paired monotonic/PTS stamps,
 callback-delivery statistics, resource samples and delayed-response counts.
 
-The corrected normal and ASan/UBSan sixteen-transition runs also pass. Clocks are
-paired before PCM scanning/lock delay. Final exact-source CI uploads fresh reports
-and held packages; existing draft PR #2 links the final source identity/evidence.
+Clocks are paired before PCM scanning/lock delay. Final exact-source CI uploads
+fresh reports and held packages; existing draft PR #2 links final source identity
+and evidence. Native CI now also triggers on host/test acceptance changes.

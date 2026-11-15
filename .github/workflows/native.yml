@@ -13,6 +13,8 @@ on:
       - 'assets/**'
       - 'third_party/**'
       - 'tools/**'
+      - 'tests/**'
+      - 'host/**'
 defaults:
   run:
     shell: bash
