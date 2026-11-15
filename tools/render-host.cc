@@ -89,7 +89,7 @@ int main(int argc,char **argv){
  Model mini=search_result;mini.music_available=mini.music_active=true;mini.music_now={music_player.detail};frame("music-mini-player",mini);
  Model reconnect=mini;reconnect.connected=false;reconnect.home_stale=true;reconnect.connection_label="Offline · reconnect attempt 3 / 6";reconnect.message="Music queue retained. Revalidating the selected server and profile.";frame("server-reconnecting",reconnect);
  View queue_controls;auto queue_input=[&](unsigned keys){ImGui::NewFrame();auto action=queue_controls.frame(queue,keys,.016f);ImGui::Render();return action;};
- TEST_REQUIRE(queue_input(Cross)->action==Action::QueueEdit&&queue_input(Cross)->id=="1:11");TEST_REQUIRE(queue_input(Square|Down)->text=="down");TEST_REQUIRE(queue_input(Triangle)->text=="next");TEST_REQUIRE(queue_input(Options)->id=="1:11"&&queue_input(Options)->text=="clear");
+ TEST_REQUIRE(queue_input(Cross)->action==Action::QueueEdit&&queue_input(Cross)->id=="1:11");TEST_REQUIRE(queue_input(Square|Down)->text=="down");TEST_REQUIRE(queue_input(Triangle)->text=="next");TEST_REQUIRE(queue_input(Options)->id=="1:11"&&queue_input(Options)->text=="clear");TEST_REQUIRE(!queue_input(Options|Square));
  View mini_controls;ImGui::NewFrame();auto mini_action=mini_controls.frame(mini,Options|Right,.016f);ImGui::Render();TEST_REQUIRE(mini_action&&mini_action->action==Action::Queue);
  ImGui::NewFrame();mini_action=mini_controls.frame(mini,Options|Cross,.016f);ImGui::Render();TEST_REQUIRE(mini_action&&mini_action->action==Action::MusicPause);
  io.DisplaySize={3840,2160};queue_input(0);TEST_REQUIRE(ImGui::GetDrawData()->TotalVtxCount>0);io.DisplaySize={1280,720};

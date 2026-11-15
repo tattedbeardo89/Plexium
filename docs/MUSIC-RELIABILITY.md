@@ -37,6 +37,11 @@ Launch never starts audible Music automatically.
 
 ## Native controls and audio focus
 
+Native input stages Square/Options/Triangle/L1/R1 until release or a chord. Held
+modifiers are combined with the new direction/button and consumed without a solo
+action; blocked/context-changed input is discarded. This avoids removing a track
+before a reorder chord and preserves guide/player combinations.
+
 The queue is available in navigation and via Options+Right from Music/background
 views. Cross plays/resumes a selection, Square removes it, Square+Up/Down moves it,
 Triangle moves it next and Options clears it; L1/R1 page. Artist Square plays and

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "check.h"
 #include "app/session.h"
+#include "app/controller.h"
 #include "app/model_budget.h"
 #include "fixtures/plex_server.h"
 #include <filesystem>
@@ -42,6 +43,10 @@ struct MusicFixture{
  }
 };
 int main(){
+ ControllerEvents input;TEST_REQUIRE(input.update(0,0)==0);TEST_REQUIRE(input.update(Square,0)==0);TEST_REQUIRE(input.update(Square|Down,0)==unsigned(Square|Down));TEST_REQUIRE(input.update(Square,0)==0&&input.update(0,0)==0);
+ TEST_REQUIRE(input.update(Options,0)==0&&input.update(0,0)==Options);TEST_REQUIRE(input.update(Options,0)==0&&input.update(Options|Right,0)==unsigned(Options|Right));TEST_REQUIRE(input.update(Options,0)==0&&input.update(0,0)==0);
+ TEST_REQUIRE(input.update(L1,0)==0&&input.update(L1|R1,0)==unsigned(L1|R1));TEST_REQUIRE(input.update(R1,0)==0&&input.update(0,0)==0);
+ TEST_REQUIRE(input.update(Square,0,true)==0&&input.update(0,0)==0);TEST_REQUIRE(input.update(Square,0)==0&&input.update(Square,1)==0&&input.update(0,1)==0);TEST_REQUIRE(input.update(Cross,1)==Cross);TEST_REQUIRE(input.update(0,1)==0);TEST_REQUIRE(input.update(Square,1)==0&&input.update(Square|Down,1)==unsigned(Square|Down));TEST_REQUIRE(input.update(0,1,true)==0&&input.update(Square,1)==0&&input.update(0,1)==Square);
  char dir[]="/tmp/plexium-music-stress-XXXXXX";TEST_REQUIRE(mkdtemp(dir));std::string root=dir;
  plex::Item track;track.type="track";track.id="101";track.section_id="3";track.title=std::string(10000,'x');track.media=plex::Json::array({{{"large",std::string(100000,'m')}}});
  plex::AudioQueue q;for(size_t n=0;n<2000;++n)TEST_REQUIRE(q.add(track));TEST_REQUIRE(!q.add(track)&&q.bytes()<=q.byte_limit&&q.entries[0].media.is_null()&&q.entries[0].title.size()<=192);

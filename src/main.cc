@@ -172,15 +172,16 @@ __attribute__((noinline)) static int run_native(){
  auto &runtime=application->runtime;auto &model=application->model;auto &access=application->access;auto &art_scope=application->art_scope;
  if(!runtime.ready()){std::fprintf(stderr,"Plexium startup: session worker failed (%d)\n",runtime.start_error());application.reset();return lifetime.finish(5);}
  startup("session ready");runtime.send({plexium::Action::Restore,{},{}});
- double last=plat_time(),poll=last,timeline=last,exit_since=last;uint32_t previous=0;
+ double last=plat_time(),poll=last,timeline=last,exit_since=last;plexium::ControllerEvents controller;
  for(;;){
   player.pump();
   if(player_decoder_cleanup_failed()){lifetime.gpu_failed=true;application.reset();return lifetime.finish(4);}
   player_tick(); // Retain VLC stop/queued-open, subtitle and decoder health servicing.
   double now=plat_time();float dt=std::clamp(float(now-last),.001f,.1f);last=now;PadState pad{};plat_pad_read(&pad);
   if(exit_requested(pad,now,exit_since))break;
-  unsigned pressed=buttons(pad.buttons&~previous);previous=pad.buttons;
+  unsigned held=buttons(pad.buttons);
   runtime.snapshot_into(model,access);
+  unsigned pressed=controller.update(held,int(model.screen),model.busy||art_scope!=access.scope);
   if(model.screen==plexium::Screen::Playback){model.paused=player_paused();model.buffering=player_buffering();if(!player_failed())model.detail.offset=player_time();}
   if(model.music_active&&!model.music_now.empty()&&!player_failed())model.music_now[0].offset=player_time();
   if(art_scope!=access.scope){artwork.clear();art_scope=access.scope;artwork.set_scope(std::string(plexium::data_path)+"/art",access.scope);artwork.set_avatar_scope(std::string(plexium::data_path)+"/avatars",access.account_token);}
