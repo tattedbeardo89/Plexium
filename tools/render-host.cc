@@ -65,7 +65,7 @@ int main(int argc,char **argv){
  tracks.audio_tracks={{"10","eng","","aac","English · AAC · Stereo","",2,false,true},{"11","spa","","aac","Spanish · AAC · Stereo","",2,false,false}};
  tracks.subtitle_tracks={{"20","eng","","srt","English · SRT · Embedded","",0,true,false}};tracks.tracks.audio="10";frame("tracks",tracks);
  Model settings=m;settings.screen=Screen::Settings;frame("settings",settings);
- Model next=m;next.screen=Screen::Details;next.detail=item;next.upcoming={item};next.autoplay_remaining=8;frame("next-episode",next);
+ Model next=m;next.screen=Screen::Details;next.detail=item;next.detail.type="episode";next.detail.season=1;next.detail.episode=1;next.upcoming={item};next.upcoming[0].type="episode";next.autoplay_remaining=8;frame("next-episode",next);
  View track_controls;ImGui::NewFrame();auto track_action=track_controls.frame(tracks,Cross,.016f);ImGui::Render();TEST_REQUIRE(track_action&&track_action->action==Action::SelectAudio&&track_action->id=="10");
  Model favorite_guide=guide_model;favorite_guide.guide.favorites_only=true;favorite_guide.guide.channels[0].favorite=true;frame("guide-favorites",favorite_guide);
  Model mini_guide=guide_model;mini_guide.guide.mini=true;frame("guide-mini",mini_guide);
@@ -78,7 +78,21 @@ int main(int argc,char **argv){
  settings.profile_name="Fixture profile";settings.server_name="Fixture server";settings.app_version="0.5.0 · host fixture";settings.build_sha="Fixture source identity; production value comes from the build stamp";settings.build_date="Fixture source date";settings.runtime_info="Host screenshot fixture · hardware hold";
  const char *panels[]={"settings-server","settings-playback","settings-appearance","settings-live-tv","settings-system"};
  for(int section=1;section<6;++section){View settings_view;for(int step=0;step<=section;++step){ImGui::NewFrame();settings_view.frame(settings,step?R1:0,.016f);ImGui::Render();}raster.draw(ImGui::GetDrawData());raster.save(std::string(argv[1])+"/"+panels[section-1]+".ppm");}
+ Model auth_required;auth_required.screen=Screen::Profiles;auth_required.connection_label="Authorization required";auth_required.message="Plex access expired. Revalidate the selected profile/server.";frame("authorization-recovery",auth_required);
+ Model music_error=music_player;music_error.playback_state=PlaybackState::Error;music_error.message="Music stop is incomplete; ownership was retained. Retry Stop.";frame("music-playback-error",music_error);
  Model safe=search_result;safe.preferences.safe_area=5;safe.preferences.theme=2;frame("safe-area",safe);
+ Model queue=music_player;queue.screen=Screen::Queue;queue.connection_label="Connected over HTTPS";queue.music_available=true;queue.music_total=3;queue.queue_rows={music_player.detail,music_player.detail,music_player.detail};queue.queue_rows[1].title="A second queue entry · duplicate songs retain distinct identities";queue.queue_rows[2].title="A long track name that is fitted to the production native button width";queue.queue_ids={"1:11","1:12","1:13"};frame("music-queue",queue);
+ Model restored_queue=queue;restored_queue.music_restored=true;restored_queue.music_active=false;restored_queue.queue_rows[0].offset=65000;frame("music-restored",restored_queue);
+ Model empty_queue=queue;empty_queue.queue_rows.clear();empty_queue.queue_ids.clear();empty_queue.music_total=0;frame("music-queue-empty",empty_queue);
+ Model artist=television;artist.detail.type="artist";artist.detail.id="500";artist.detail.title="Synthetic Plex artist";artist.detail.genres={"Jazz","Instrumental"};artist.detail_rails={{"albums","Albums",false,{album,album}}};frame("artist-details",artist);
+ Model album_details=artist;album_details.detail=album;album_details.detail.year=2024;album_details.detail_rails={{"tracks","Tracks",false,{music_player.detail,music_player.detail}}};frame("album-details",album_details);
+ Model mini=search_result;mini.music_available=mini.music_active=true;mini.music_now={music_player.detail};frame("music-mini-player",mini);
+ Model reconnect=mini;reconnect.connected=false;reconnect.home_stale=true;reconnect.connection_label="Offline · reconnect attempt 3 / 6";reconnect.message="Music queue retained. Revalidating the selected server and profile.";frame("server-reconnecting",reconnect);
+ View queue_controls;auto queue_input=[&](unsigned keys){ImGui::NewFrame();auto action=queue_controls.frame(queue,keys,.016f);ImGui::Render();return action;};
+ TEST_REQUIRE(queue_input(Cross)->action==Action::QueueEdit&&queue_input(Cross)->id=="1:11");TEST_REQUIRE(queue_input(Square|Down)->text=="down");TEST_REQUIRE(queue_input(Triangle)->text=="next");TEST_REQUIRE(queue_input(Options)->id=="1:11"&&queue_input(Options)->text=="clear");
+ View mini_controls;ImGui::NewFrame();auto mini_action=mini_controls.frame(mini,Options|Right,.016f);ImGui::Render();TEST_REQUIRE(mini_action&&mini_action->action==Action::Queue);
+ ImGui::NewFrame();mini_action=mini_controls.frame(mini,Options|Cross,.016f);ImGui::Render();TEST_REQUIRE(mini_action&&mini_action->action==Action::MusicPause);
+ io.DisplaySize={3840,2160};queue_input(0);TEST_REQUIRE(ImGui::GetDrawData()->TotalVtxCount>0);io.DisplaySize={1280,720};
  View guide_view;
  auto guide_input=[&](unsigned keys){ImGui::NewFrame();auto action=guide_view.frame(guide_model,keys,.016f);ImGui::Render();return action;};
  TEST_REQUIRE(guide_input(Cross)->action==Action::TuneChannel);

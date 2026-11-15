@@ -19,6 +19,7 @@ class View {
  int detail_panel=3;
  float detail_scroll=0;
  int guide_row=0,guide_program=0,settings_section=0;
+ std::optional<Command> queue_frame(const Model&,unsigned,Canvas&);
  std::optional<Command> notices_frame(const Model&,unsigned,Canvas&);
  std::optional<Command> settings_frame(const Model&,unsigned,Canvas&);
  std::optional<Command> music_frame(const Model&,unsigned,Canvas&);

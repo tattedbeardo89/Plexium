@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include "client.h"
+#include "presentation.h"
 #include <algorithm>
 #include <numeric>
 #include <random>
@@ -8,14 +9,14 @@
 namespace plex {
 inline bool audio_type(const Item &i) {return i.type=="track";}
 inline bool music_section(const Item &i) {return i.type=="artist";}
+inline bool audio_codec_supported(const std::string&codec){for(const char*known:{"mp3","aac","flac","alac","pcm","pcm_s16le","pcm_s24le","pcm_s32le","pcm_f32le","vorbis","opus"})if(codec==known)return true;return false;}
 inline Playback audio_direct_play(const std::string &base,const std::string &token,const Item &i,size_t version=0) {
     if(!audio_type(i) || !valid_base(base,true) || !i.media.is_array() || version>=i.media.size())return {Mode::Unsupported,"","No audio version"};
     const auto &m=i.media[version];auto parts=m.find("Part");
     if(parts==m.end() || !parts->is_array() || parts->size()!=1)return {Mode::Unsupported,"","Audio requires one part per track"};
     auto key=text((*parts)[0],"key"),codec=text(m,"audioCodec"),fmt=text(m,"container");
-    const std::set<std::string> codecs={"mp3","aac","flac","alac","pcm","pcm_s16le","pcm_s24le","pcm_s32le","pcm_f32le","vorbis","opus"};
     const std::set<std::string> formats={"mp3","mp4","m4a","m4b","aac","flac","wav","ogg","oga","opus"};
-    if(!codecs.count(codec) || !formats.count(fmt))return {Mode::Unsupported,"","Audio codec/container not in compiled adapter capability list"};
+    if(!audio_codec_supported(codec) || !formats.count(fmt))return {Mode::Unsupported,"","Audio codec/container not in compiled adapter capability list"};
     if(key.rfind("/library/parts/",0)!=0 || key.find_first_of("?#\\\r\n")!=std::string::npos || key.find("..")!=std::string::npos)return {Mode::Unsupported,"","Invalid audio part"};
     return {Mode::DirectPlay,base+key+"?X-Plex-Token="+encode(token),""};
 }
@@ -28,11 +29,12 @@ inline Result audio_listing(Client &c,const std::string &b,const std::string &t,
         auto r=c.browse(b,t,path,start,200);if(!r)return r;
         auto list=items(r.data,false);const auto &mc=r.data["MediaContainer"];
         auto total=number(mc,"totalSize",number(mc,"size",list.size()));
+        if(complete&&(number(mc,"offset",start)!=start||total<0))return {{},"Invalid audio pagination",0};
         if(total>2000 && complete)return {{},"Queue exceeds safe 2000-track limit; select a smaller album/playlist",0};
         // Queues keep only bounded display/identity/progress data. Resolve each track's media on demand.
         for(const auto &i:list) {
             if(metadata.size()>=2000)break;
-            if(complete || seen.insert(i.id).second)metadata.push_back({{"ratingKey",i.id},{"type",i.type},{"title",i.title},{"grandparentTitle",i.artist},{"parentTitle",i.album},{"parentRatingKey",i.parent_id},{"grandparentRatingKey",i.grandparent_id},{"parentIndex",i.disc},{"index",i.track},{"duration",i.duration},{"viewOffset",i.offset},{"lastViewedAt",i.last_played},{"thumb",i.thumb}});
+            if(complete || seen.insert(i.id).second)metadata.push_back({{"librarySectionID",i.section_id},{"ratingKey",i.id},{"type",i.type},{"title",utf8_prefix(i.title,192)},{"grandparentTitle",utf8_prefix(i.artist,192)},{"parentTitle",utf8_prefix(i.album,192)},{"parentRatingKey",i.parent_id},{"grandparentRatingKey",i.grandparent_id},{"parentIndex",i.disc},{"index",i.track},{"duration",i.duration},{"viewOffset",i.offset},{"lastViewedAt",i.last_played},{"thumb",utf8_prefix(i.thumb,512)}});
         }
         if(!complete || start+static_cast<int>(list.size())>=total || list.empty())
             return {Json{{"MediaContainer",{{"Metadata",std::move(metadata)},{"totalSize",total}}}},"",200};
@@ -56,11 +58,18 @@ enum class Repeat {Off,All,One};
 struct AudioQueue {
     std::vector<Item> entries;
     std::vector<size_t> order;
+    std::vector<uint64_t> identities;uint64_t serial=0,revision=0;
+    static constexpr size_t capacity=2000,byte_limit=8u*1024*1024;
+    uint64_t uid(size_t position)const{return position<order.size()&&order[position]<identities.size()?identities[order[position]]:0;}
+    size_t locate(uint64_t id)const{for(size_t n=0;n<order.size();++n)if(uid(n)==id)return n;return order.size();}
+    size_t bytes()const{size_t n=entries.capacity()*sizeof(Item)+order.capacity()*sizeof(size_t)+identities.capacity()*sizeof(uint64_t);for(const auto&i:entries)n+=i.id.capacity()+i.title.capacity()+i.artist.capacity()+i.album.capacity()+i.thumb.capacity()+i.section_id.capacity()+i.parent_id.capacity()+i.grandparent_id.capacity();return n;}
+    static Item compact(const Item&i){Item v;v.id=i.id;v.type="track";v.title=utf8_prefix(i.title,192);v.artist=utf8_prefix(i.artist,192);v.album=utf8_prefix(i.album,192);v.thumb=utf8_prefix(i.thumb,512);v.section_id=i.section_id;v.parent_id=i.parent_id;v.grandparent_id=i.grandparent_id;v.duration=i.duration;v.offset=i.offset;v.disc=i.disc;v.track=i.track;return v;}
+    bool move(size_t from,size_t to){if(from>=order.size()||to>=order.size())return false;auto current_id=uid(cursor);auto entry=order[from];order.erase(order.begin()+from);order.insert(order.begin()+to,entry);cursor=locate(current_id);++revision;return true;}
     size_t cursor=0;
     Repeat repeat=Repeat::Off;bool shuffled=false;
     const Item *current() const {return cursor<order.size() && order[cursor]<entries.size()?&entries[order[cursor]]:nullptr;}
-    void clear() {entries.clear();order.clear();cursor=0;repeat=Repeat::Off;shuffled=false;}
-    void assign(std::vector<Item> value) {clear();if(value.size()>2000)value.resize(2000);entries=std::move(value);order.resize(entries.size());std::iota(order.begin(),order.end(),0);}
+    void clear() {entries.clear();order.clear();identities.clear();cursor=0;repeat=Repeat::Off;shuffled=false;++revision;}
+    void assign(std::vector<Item> value) {clear();for(const auto&i:value){if(!add(i))break;}}
     bool advance(bool ended=false) {
         if(order.empty())return false;
         if(ended && repeat==Repeat::One)return true;
@@ -70,23 +79,24 @@ struct AudioQueue {
     bool previous() {if(cursor==0 || order.empty())return false;--cursor;return true;}
     bool add(const Item &i,bool next=false) {
         if(!audio_type(i) || entries.size()>=2000)return false;
-        size_t id=entries.size();entries.push_back(i);
+        if(i.id.empty()||i.id.size()>64||i.section_id.size()>64||i.parent_id.size()>64||i.grandparent_id.size()>64||serial>=INT64_MAX||bytes()+sizeof(Item)+2048>byte_limit)return false;
+        size_t id=entries.size();entries.push_back(compact(i));identities.push_back(++serial);++revision;
         order.insert(next && !order.empty()?order.begin()+cursor+1:order.end(),id);return true;
     }
-    bool remove(size_t position) {
-        if(position>=order.size() || position==cursor)return false; // stop/skip current first
-        size_t removed=order[position];order.erase(order.begin()+position);entries.erase(entries.begin()+removed);
+    bool remove(size_t position,bool current=false) {
+        if(position>=order.size() || (position==cursor&&!current))return false; // stop/skip current first
+        size_t removed=order[position];order.erase(order.begin()+position);entries.erase(entries.begin()+removed);identities.erase(identities.begin()+removed);++revision;
         for(auto &v:order)if(v>removed)--v;
-        if(position<cursor)--cursor;
+        if(position<cursor)--cursor;if(cursor>=order.size())cursor=order.empty()?0:order.size()-1;
         return true;
     }
     void shuffle(uint32_t seed) {
         if(order.empty())return;
-        std::mt19937 rng(seed);std::shuffle(order.begin()+cursor+1,order.end(),rng);shuffled=true;
+        std::mt19937 rng(seed);std::shuffle(order.begin()+cursor+1,order.end(),rng);shuffled=true;++revision;
     }
     void unshuffle() {
         auto id=current()?order[cursor]:0;std::sort(order.begin(),order.end());
-        auto it=std::find(order.begin(),order.end(),id);cursor=it-order.begin();shuffled=false;
+        auto it=std::find(order.begin(),order.end(),id);cursor=it-order.begin();shuffled=false;++revision;
     }
 };
 }

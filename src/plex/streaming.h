@@ -84,6 +84,25 @@ inline Result stream_control(Client &client,const std::string &base,const std::s
     if(session.empty() || session.size()>128 || session.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")!=std::string::npos)return {{},"Invalid streaming session",0};
     return client.call("GET",base,std::string("/video/:/transcode/universal/")+(stop?"stop":"ping")+"?session="+encode(session),token);
 }
+// Read-only audio negotiation. Starting a music transcode remains disabled until
+// its independent consumer/stop lifecycle is verified; a decision is not a lease.
+inline StreamPlan inspect_audio_fallback(Client&client,const std::string&base,const std::string&token,const Item&i,size_t version,const std::string&session,const TrackSelection&selection={}){
+ auto invalid=[](const std::string&error,int status=0,bool attempted=false){return StreamPlan{{Mode::Unsupported,"",error},"","",false,status,attempted};};
+ if(!audio_type(i)||i.id.empty()||i.id.find_first_not_of("0123456789")!=std::string::npos||!i.media.is_array()||version>=i.media.size()||!valid_base(base,true)||session.empty()||session.size()>128||session.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")!=std::string::npos)return invalid("Invalid audio metadata or session identity");
+ auto parts=i.media[version].find("Part");if(parts==i.media[version].end()||!parts->is_array()||parts->size()!=1)return invalid("Multipart audio is unsupported");
+ auto query="?path="+encode("/library/metadata/"+i.id)+"&mediaIndex="+std::to_string(version)+"&partIndex=0&protocol=hls&session="+encode(session)+"&directPlay=0&directStream=0&audioCodec=aac&audioBitrate=320&X-Plex-Client-Profile-Extra="+encode("add-transcode-target(type=musicProfile&context=streaming&protocol=hls&container=mpegts&audioCodec=aac)");
+ if(!selection.audio.empty()){auto tracks=media_tracks(i,version,false);if(!selected_track(tracks,selection.audio))return invalid("Selected audio stream does not belong to this version");query+="&audioStreamID="+encode(selection.audio);}
+ auto response=client.call("GET",base,"/music/:/transcode/universal/decision"+query,token);
+ if(!response)return invalid("Audio fallback decision unavailable",response.status,true);
+ auto mc=response.data.find("MediaContainer");if(mc==response.data.end()||!mc->is_object()||number(*mc,"generalDecisionCode",-1)<1000||number(*mc,"generalDecisionCode",-1)>=2000)return invalid("Plex rejected audio conversion",response.status,true);
+ auto values=mc->find("Metadata");if(values==mc->end()||!values->is_array()||values->size()!=1||text((*values)[0],"ratingKey")!=i.id)return invalid("Audio decision identity is invalid",response.status,true);
+ auto versions=(*values)[0].find("Media");if(versions==(*values)[0].end()||!versions->is_array()||versions->size()!=1)return invalid("Audio decision media is invalid",response.status,true);
+ const auto &media=(*versions)[0];auto part=media.find("Part");if(part==media.end()||!part->is_array()||part->size()!=1||!(*part)[0].is_object())return invalid("Audio decision must contain one part",response.status,true);
+ auto codec=text(media,"audioCodec"),decision=text(media,"audioDecision",text((*part)[0],"audioDecision"));
+ auto streams=(*part)[0].find("Stream");if(streams!=(*part)[0].end()&&streams->is_array())for(const auto&track:*streams)if(number(track,"streamType")==2){codec=text(track,"codec",codec);decision=text(track,"decision",decision);break;}
+ if(codec!="aac"||decision!="transcode"||!text(media,"videoCodec").empty())return invalid("Audio server output is incompatible with the AAC-only fallback policy",response.status,true);
+ return invalid("Plex offers AAC conversion; playback is held because music stop/release lifecycle is unverified",response.status,true);
+}
 inline Playback audio_transcode(const std::string &base,const std::string &token,const Item &item,const std::string &session) {
     if(!audio_type(item) || !valid_base(base,true) || item.id.empty() || !item.media.is_array() || item.media.empty() || !item.media[0].contains("Part") || item.media[0]["Part"].size()!=1)return {Mode::Unsupported,"","Invalid audio transcode request"};
     return {Mode::Transcode,base+"/music/:/transcode/universal/start.m3u8?path="+encode("/library/metadata/"+item.id)+"&session="+encode(session)+"&protocol=hls&directPlay=0&directStream=0&audioCodec=aac&audioBitrate=320&X-Plex-Token="+encode(token),""};

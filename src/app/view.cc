@@ -17,20 +17,27 @@ __attribute__((noinline)) std::optional<Command> View::details_frame(const Model
    if(back){c.photo(400,180,1430,470,back);c.box(400,180,1430,470,IM_COL32(10,11,18,185));}
    float height=!m.books&&(m.detail.type=="artist"||m.detail.type=="album"||m.detail.type=="track")?195:293;
    c.box(425,235,195,height,IM_COL32(31,32,49,255));if(poster)c.photo(425,235,195,height,poster);
-  }else c.box(425,235,195,293,IM_COL32(31,32,49,255));
-  c.text(680,235,plex::utf8_prefix(m.detail.title,52),43);
+  }else c.box(425,235,195,!m.books&&(m.detail.type=="artist"||m.detail.type=="album"||m.detail.type=="track")?195:293,IM_COL32(31,32,49,255));
+  c.fit(680,235,1100,m.detail.title,43);
   std::string facts=m.detail.type;
   if(m.detail.year)facts+=" · "+std::to_string(m.detail.year);
-  if(m.detail.duration)facts+=" · "+std::to_string(m.detail.duration/60000)+" min";
+  if(m.detail.duration)facts+=" · "+(m.detail.type=="track"?duration_label(m.detail.duration):std::to_string(m.detail.duration/60000)+" min");
   if(!m.detail.content_rating.empty())facts+=" · "+m.detail.content_rating;
   if(!m.detail.rating.empty())facts+=" · Rating "+m.detail.rating;
-  c.text(685,303,plex::utf8_prefix(facts,100),25,c.muted);
+  c.fit(685,303,1100,facts,25,c.muted);
   std::string genres;for(const auto &g:m.detail.genres){if(!genres.empty())genres+=" · ";genres+=g;}
   std::string context=genres;
   if(m.detail.type=="episode")context=m.detail.series+" · S"+std::to_string(m.detail.season)+" E"+std::to_string(m.detail.episode);
   else if((m.detail.type=="track"||m.detail.type=="album")&&!m.detail.artist.empty())context=m.detail.artist+(genres.empty()?"":" · "+genres);
-  c.text(685,345,plex::utf8_prefix(context,100),24,c.muted);
+  c.fit(685,345,1100,context,24,c.muted);
   c.wrap(685,391,plex::utf8_prefix(m.detail.summary,530),1080,26);
+  bool music=m.detail.type=="track"||m.detail.type=="album"||m.detail.type=="artist"||m.detail.type=="playlist";
+  if(music){c.fit(680,655,1100,"Square Play · Artist Triangle Shuffle · Options+Square Add Later · Options+Left Play Next",19,c.muted);
+   if((keys&(Options|Square))==(Options|Square))return command(Action::QueueAdd,"later");
+   if((keys&(Options|Left))==(Options|Left))return command(Action::QueueAdd,"next");
+   if(m.detail.type=="artist"&&(keys&Triangle))return command(Action::QueuePlay,"shuffle");
+   if((keys&Square)&&m.detail.type!="track")return command(Action::QueuePlay);
+  }
   bool container=m.detail.type=="show"||m.detail.type=="season"||m.detail.type=="artist"||m.detail.type=="album"||m.detail.type=="collection"||m.detail.type=="playlist";
   if(!container&&(keys&Square))return command(Action::Restart);
   if((m.detail.type=="movie"||m.detail.type=="episode")&&(keys&Triangle))return command(Action::MarkWatched);
@@ -43,7 +50,7 @@ __attribute__((noinline)) std::optional<Command> View::details_frame(const Model
   for(int i=0;i<4;++i)c.button(680+i*270,565,250,labels[i],row==0&&column==i);
   if(!container&&m.detail.media.is_array()&&!m.detail.media.empty()){
    c.text(680,625,"Version "+std::to_string(m.media_version+1)+" / "+std::to_string(m.detail.media.is_array()?m.detail.media.size():0)+" · "+plex::quality_name(m.quality),22,c.muted);
-   c.text(680,655,"L1 Version · R1 Quality · Options Tracks · Square Restart · Triangle Watched",20,c.muted);
+   if(!music)c.text(680,655,"L1 Version · R1 Quality · Options Tracks · Square Restart · Triangle Watched",20,c.muted);
    if(keys&Options)return command(Action::Tracks);
    if(keys&L1)return command(Action::Version);if(keys&R1)return command(Action::Quality);
   }
@@ -150,9 +157,17 @@ std::optional<Command> View::frame(const Model&m,unsigned keys,float dt){
  if(m.busy&&m.screen!=Screen::Playback){c.text(1550,80,"Loading…",25,c.muted);keys&=Circle;}
  if(!m.message.empty()){float message_y=m.screen==Screen::Guide?945:850;c.box(420,message_y,1400,62,IM_COL32(60,32,48,255));c.wrap(447,message_y+10,m.message,1320,24);}
  if(m.preferences.clock&&m.screen!=Screen::Guide&&m.screen!=Screen::Playback)c.text(1580,80,plex::guide_time(std::time(nullptr)),25,c.muted);
- if(m.music_active&&m.screen!=Screen::Playback&&m.screen!=Screen::Tracks&&!m.music_now.empty()){c.box(420,945,1400,95,IM_COL32(28,29,46,245));c.text(440,960,plex::utf8_prefix(m.music_now[0].title,70),26);c.text(440,1000,"Square Now playing · "+duration_label(m.music_now[0].offset),21,c.muted);if((keys&Square)&&m.screen!=Screen::Guide)return command(Action::MusicOpen);}
+ if(m.music_available&&m.screen!=Screen::Playback){
+  if((keys&(Options|Right))==(Options|Right))return command(Action::Queue);
+  if((keys&(Options|Down))==(Options|Down))return command(Action::MusicOpen);
+  if((keys&(Options|Cross))==(Options|Cross))return command(Action::MusicPause);
+  if((keys&(Options|L1))==(Options|L1))return command(Action::MusicPrevious);
+  if((keys&(Options|R1))==(Options|R1))return command(Action::MusicNext);
+  if(m.screen!=Screen::Queue&&m.screen!=Screen::Tracks&&!m.music_now.empty()){const auto&i=m.music_now[0];c.box(420,945,1400,95,IM_COL32(28,29,46,245));if(c.image){auto t=c.image(i,false);if(t)c.photo(430,951,78,78,t);}c.fit(525,956,1250,i.title+" · "+i.artist+(m.music_paused?" · Paused / Resume":""),25);c.text(525,994,"Options+Cross Pause · Options+L1/R1 Previous/Next · Options+Right Queue · "+duration_label(i.offset),20,c.muted);if(i.duration>0)c.box(525,1030,1250*std::clamp(double(i.offset)/i.duration,0.,1.),4,c.accent,0);if((keys&Square)&&m.screen!=Screen::Details&&m.screen!=Screen::Guide&&m.screen!=Screen::Library)return command(Action::MusicOpen);}
+ }
  if(keys&Circle){if(m.screen==Screen::Notices&&!m.notice_body.empty())return command(Action::Notices);if(m.autoplay_remaining>0)return command(Action::CancelNext);if(m.screen==Screen::Playback)return command(m.detail.type=="track"?Action::MusicHome:Action::Stop);if(m.screen==Screen::Linking)return command(Action::Cancel);return command(Action::Back);}
  switch(m.screen){
+ case Screen::Queue:return queue_frame(m,keys,c);
  case Screen::Welcome:
   c.text(180,326,"Your library. A bigger stage.",66);c.wrap(183,435,"A cinematic Plex experience for PlayStation 5.\nLink your own Plex account to get started.",1000,31);
   c.text(185,930,"Unofficial Plex client; not affiliated with or endorsed by Plex",22,c.muted);
@@ -163,6 +178,8 @@ std::optional<Command> View::frame(const Model&m,unsigned keys,float dt){
   c.text(183,443,m.code.empty()?"Requesting code…":m.code,100);c.text(184,591,"Code expires in "+std::to_string(m.expires)+" seconds",27,c.muted);
   c.button(184,675,280,"Retry linking",true);if(keys&Cross)return command(Action::Link);break;
  case Screen::Profiles:
+  if(m.profiles.empty()){c.text(180,310,"Plex authorization is required",43);c.button(180,450,1500,"Reload Plex Home profiles",true);c.text(185,550,"Cross Reload profiles · Triangle Revalidate selected server · Options Sign out",24,c.muted);if(keys&Cross)return command(Action::Home,"profiles");if(keys&Triangle)return command(Action::ReconnectServer);if(keys&Options)return command(Action::SignOut);break;}
+  [[fallthrough]];
  case Screen::Servers:{
   bool profiles=m.screen==Screen::Profiles;c.text(180,242,profiles?"Who's watching?":"Choose your server",58);
   int count=int(profiles?m.profiles.size():m.servers.size());
@@ -210,11 +227,11 @@ std::optional<Command> View::frame(const Model&m,unsigned keys,float dt){
   c.text(105,1015,"D-pad  Select track     Cross  Apply     Circle  Return",24,c.muted);break;
  }
  case Screen::Details:
-  if(!m.upcoming.empty()){
+  if(m.detail.type=="episode"&&!m.upcoming.empty()){
    c.box(680,945,1120,80,IM_COL32(42,40,67,255));c.text(700,955,"Next: "+plex::utf8_prefix(m.upcoming.front().title,55)+(m.autoplay_remaining>0?" · "+std::to_string(m.autoplay_remaining)+"s":""),27);
    c.text(700,996,"Triangle  Play next     Circle  Cancel countdown",21,c.muted);if(keys&Triangle)return command(Action::PlayNext);
   }
-  if(m.detail.type=="album"||m.detail.type=="playlist")c.text(680,660,"Square  Play complete queue",23,c.muted);
+
   return details_frame(m,keys,c);
  case Screen::Playback:{
   if(m.detail.type=="track")return music_frame(m,keys,c);
@@ -251,12 +268,12 @@ std::optional<Command> View::frame(const Model&m,unsigned keys,float dt){
  case Screen::Library:{
   if(m.screen==Screen::Home&&(keys&Triangle))return command(Action::Home,"","refresh");
   if(m.screen==Screen::Library&&(keys&Triangle)&&!m.library_id.empty())return command(Action::Search,m.library_id);
-  c.fit(425,205,1400,m.busy?"Loading…":m.connected?"Connected to "+m.server_name:m.home_stale?"Cached library · server unavailable":"Server status pending",20,c.muted);
+  c.fit(425,205,1400,m.busy?"Loading…":!m.connection_label.empty()?m.connection_label:m.connected?"Connected to "+m.server_name:m.home_stale?"Cached library · server unavailable":"Server status pending",20,c.muted);
   int n=int(m.navigation.size());if(n==0)break;side=std::clamp(side,0,n-1);
   if(keys&L1){side=(side+n-1)%n;sidebar=true;}if(keys&R1){side=(side+1)%n;sidebar=true;}
   if(keys&Options)sidebar=!sidebar;
   if(sidebar){if(keys&Down)side=(side+1)%n;if(keys&Up)side=(side+n-1)%n;
-   if(keys&Cross){const auto&id=m.navigation[side].id;if(id=="home")return command(Action::Home);if(id=="search")return command(Action::Search);if(id=="live-tv")return command(Action::LiveTV);if(id=="free-tv")return command(Action::FreeTV);if(id=="settings")return command(Action::Settings);if(id=="profiles")return command(Action::Home,"profiles");if(id=="servers")return command(Action::Server);return command(Action::Library,id.substr(8));}
+   if(keys&Cross){const auto&id=m.navigation[side].id;if(id=="home")return command(Action::Home);if(id=="search")return command(Action::Search);if(id=="live-tv")return command(Action::LiveTV);if(id=="free-tv")return command(Action::FreeTV);if(id=="queue")return command(Action::Queue);if(id=="settings")return command(Action::Settings);if(id=="profiles")return command(Action::Home,"profiles");if(id=="servers")return command(Action::Server);return command(Action::Library,id.substr(8));}
    if(keys&Right)sidebar=false;
   }else {if(keys&Down){if(m.screen==Screen::Library&&row<0)column=0;++row;}if(keys&Up){--row;if(m.screen==Screen::Library&&row<0){auto tabs=library_tabs(m.library_type,m.books);column=0;for(size_t i=0;i<tabs.size();++i)if(tabs[i].first==m.library_tab)column=int(i);}}if(keys&Right)++column;if(keys&Left){if(column==0)sidebar=true;else --column;}}
   int navstart=std::max(0,side-8);for(int i=navstart;i<std::min(n,navstart+10);++i)c.button(70,200+(i-navstart)*67,285,m.navigation[i].label,sidebar&&side==i);

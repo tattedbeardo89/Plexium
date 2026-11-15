@@ -165,13 +165,14 @@ ImTextureID Artwork::request_image(const Request &request,const std::string &key
         bool direct_source=avatar_image || local_asset || request.url.find("/photo/:/transcode?")==std::string::npos;
         int max_width=direct_source?4096:640,max_height=direct_source?4096:960;
         auto cached=local_asset?std::string():cache.get(key,4u*1024*1024);
+        std::unique_ptr<unsigned char,void(*)(void*)> validated(nullptr,stbi_image_free);
         if(!cached.empty()) {
             int width=0,height=0,channels=0;
             auto *data=reinterpret_cast<const unsigned char *>(cached.data());
-            bool valid=stbi_info_from_memory(data,static_cast<int>(cached.size()),&width,&height,&channels) && width>0 && height>0 && width<=max_width && height<=max_height && static_cast<size_t>(width)*height<=8u*1024*1024;
-            unsigned char *checked=valid?stbi_load_from_memory(data,static_cast<int>(cached.size()),&width,&height,&channels,4):nullptr;
-            if(!checked){++state->decode_failures;cache.erase(key);cached.clear();}
-            stbi_image_free(checked);
+            bool valid=stbi_info_from_memory(data,static_cast<int>(cached.size()),&width,&height,&channels) && width>0 && height>0 && width<=max_width && height<=max_height && static_cast<size_t>(width)*height<=2u*1024*1024;
+            unsigned char *checked=valid&&decode?stbi_load_from_memory(data,static_cast<int>(cached.size()),&width,&height,&channels,4):nullptr;
+            if(!valid||(decode&&!checked)){++state->decode_failures;cache.erase(key);cached.clear();}
+            validated.reset(checked);
         }
         const bool disk_hit=!cached.empty();
         if(disk_hit)++state->hits;else ++state->misses;
@@ -207,7 +208,7 @@ ImTextureID Artwork::request_image(const Request &request,const std::string &key
         const auto *bytes = reinterpret_cast<const unsigned char *>(reply.body.data());
         int w, h, c;
         if (!stbi_info_from_memory(bytes, reply.body.size(), &w, &h, &c) || w <= 0 || h <= 0 ||
-            w>max_width || h>max_height || static_cast<size_t>(w)*h>8u*1024*1024) {
+            w>max_width || h>max_height || static_cast<size_t>(w)*h>2u*1024*1024) {
             ++state->decode_failures;
             out.failure=reply.content_type.rfind("image/webp",0)==0?"WebP avatar is unsupported":
                 reply.content_type.rfind("image/svg",0)==0?"SVG avatar is unsupported":"Unsupported image format or dimensions";
@@ -215,8 +216,8 @@ ImTextureID Artwork::request_image(const Request &request,const std::string &key
             return out;
         }
         checkpoint(13,"image decode");
-        unsigned char *decoded = stbi_load_from_memory(bytes, reply.body.size(), &w, &h, &c, 4);
-        if (decoded && w>0 && h>0 && w<=max_width && h<=max_height && static_cast<size_t>(w)*h<=8u*1024*1024) {
+        unsigned char *decoded = validated?validated.release():stbi_load_from_memory(bytes, reply.body.size(), &w, &h, &c, 4);
+        if (decoded && w>0 && h>0 && w<=max_width && h<=max_height && static_cast<size_t>(w)*h<=2u*1024*1024) {
             if(home_active)home_checkpoint(11,"first Home image decoded");
             if(avatar_image) {
                 // Center-crop and bound retained RGBA to 256 square (256 KiB).

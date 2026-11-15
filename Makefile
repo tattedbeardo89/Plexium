@@ -9,9 +9,9 @@ ifeq ($(SANITIZE),1)
  LDFLAGS += -fsanitize=address,undefined
 endif
 CORE := $(OBJ)/src/plex/client.o $(OBJ)/third_party/tinyxml2/tinyxml2.o
-APP := $(OBJ)/src/app/session.o $(OBJ)/src/app/features.o
+APP := $(OBJ)/src/app/session.o $(OBJ)/src/app/features.o $(OBJ)/src/app/music.o $(OBJ)/src/app/reliability.o
 IMGUI := $(addprefix $(OBJ)/third_party/imgui/,$(addsuffix .o,imgui imgui_draw imgui_widgets imgui_tables))
-SUITES := client-features-tests dvr-integration-tests live-session-tests episode-continuation-tests durable-progress-tests track-selection-tests progress-journal-tests playback-integration-tests  artwork-tests session-restore-tests state-tests guide-tests startup-runtime-tests runtime-tests session-tests protocol-tests auth-tests home-tests home-feed-tests
+SUITES := music-reliability-tests client-features-tests dvr-integration-tests live-session-tests episode-continuation-tests durable-progress-tests track-selection-tests progress-journal-tests playback-integration-tests  artwork-tests session-restore-tests state-tests guide-tests startup-runtime-tests runtime-tests session-tests protocol-tests auth-tests home-tests home-feed-tests
 .PHONY: all test clean
 all: $(addprefix $(OUT)/,$(SUITES)) $(OUT)/plexium-render $(OUT)/transport-probe $(OUT)/plexium-cli $(OUT)/plexium-server-check
 $(OUT)/artwork-tests: $(CORE) $(OBJ)/src/plex/artwork.o $(OBJ)/tests/artwork_tests.o
@@ -103,9 +103,13 @@ $(OUT)/dvr-integration-tests: $(CORE) $(APP) $(OBJ)/tests/dvr_integration_tests.
 .PHONY: build-info-force
 $(OBJ)/build_identity.h: build-info-force
 	python3 tools/write-build-info.py $@
-$(OBJ)/src/app/features.o: $(OBJ)/build_identity.h
-$(OBJ)/src/app/features.o: CXXFLAGS += -I$(OBJ)
+$(OBJ)/src/app/features.o $(OBJ)/src/app/music.o $(OBJ)/src/app/reliability.o: $(OBJ)/build_identity.h
+$(OBJ)/src/app/features.o $(OBJ)/src/app/music.o $(OBJ)/src/app/reliability.o: CXXFLAGS += -I$(OBJ)
 
 $(OUT)/client-features-tests: $(CORE) $(APP) $(OBJ)/tests/client_features_tests.o
+	@mkdir -p $(dir $@)
+	$(CXX) $^ $(LDFLAGS) -o $@
+
+$(OUT)/music-reliability-tests: $(CORE) $(APP) $(OBJ)/tests/music_reliability_tests.o
 	@mkdir -p $(dir $@)
 	$(CXX) $^ $(LDFLAGS) -o $@

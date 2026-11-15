@@ -26,12 +26,14 @@ int main(int argc,char **argv){
  std::cout.setf(std::ios::unitbuf);TEST_REQUIRE(argc==7);FixturePlayer player;TEST_REQUIRE(player.ready());player.file=argv[1];player.negotiated_file=argv[4];player.audio_one=argv[5];player.audio_two=argv[6];
  auto root="/tmp/plexium-vlc-"+std::to_string(getpid());std::filesystem::create_directory(root);test_posix_result(chmod(root.c_str(),0700),"chmod");TEST_REQUIRE(plex::save_credentials(root+"/account.json","host-device","account-token"));
  Fixture fixture;fixture.metadata["duration"]=18000;double clock=1000;bool episode_mode=false;
- Session session([&](const plex::Request&q){
+ auto transport=[&](const plex::Request&q){
   if(player.music_mode){
-   auto track=[&](const char *id){return plex::Json{{"ratingKey",id},{"type","track"},{"title",std::string("Fixture audio ")+id},{"duration",3000},{"index",std::string(id)=="101"?1:2},{"Media",plex::Json::array({{{"container","m4a"},{"audioCodec","aac"},{"Part",plex::Json::array({{{"key",std::string("/library/parts/")+id+"/file.m4a"}}})}}})}};};
+   if(q.url.find("/library/sections")!=std::string::npos)return plex::Reply{200,plex::Json{{"MediaContainer",{{"Directory",plex::Json::array({{{"key","1"},{"type","movie"},{"title","Movies"}},{{"key","3"},{"type","artist"},{"title","Music"}}})}}}}.dump(),""};
+   auto track=[&](const char *id){return plex::Json{{"ratingKey",id},{"type","track"},{"librarySectionID","3"},{"title",std::string("Fixture audio ")+id},{"duration",3000},{"index",std::string(id)=="101"?1:2},{"Media",plex::Json::array({{{"container","m4a"},{"audioCodec","aac"},{"Part",plex::Json::array({{{"key",std::string("/library/parts/")+id+"/file.m4a"}}})}}})}};};
    plex::Json entries;
-   if(q.url.find("/library/metadata/500/children")!=std::string::npos)entries=plex::Json::array({track("101"),track("102")});
-   else if(q.url.find("/library/metadata/500?")!=std::string::npos)entries=plex::Json::array({{{"ratingKey","500"},{"type","album"},{"title","Synthetic audio album"}}});
+   if(q.url.find("/library/metadata/101,102?")!=std::string::npos)entries=plex::Json::array({track("101"),track("102")});
+   else if(q.url.find("/library/metadata/500/children")!=std::string::npos)entries=plex::Json::array({track("101"),track("102")});
+   else if(q.url.find("/library/metadata/500?")!=std::string::npos)entries=plex::Json::array({{{"ratingKey","500"},{"type","album"},{"librarySectionID","3"},{"title","Synthetic audio album"}}});
    else for(const auto *id:{"101","102"})if(q.url.find(std::string("/library/metadata/")+id+"?")!=std::string::npos)entries=plex::Json::array({track(id)});
    if(entries.is_array())return plex::Reply{200,plex::Json{{"MediaContainer",{{"Metadata",entries},{"totalSize",entries.size()}}}}.dump(),""};
   }
@@ -41,7 +43,8 @@ int main(int argc,char **argv){
    return plex::Reply{200,plex::Json{{"MediaContainer",{{"totalSize",2},{"Metadata",entries}}}}.dump(),""};
   }
   return fixture(q);
- },root,player,[&]{return clock;});
+ };
+ Session session(transport,root,player,[&]{return clock;});
  auto send=[&](Action a,std::string id=""){return session.dispatch({a,id,{}});};
  TEST_REQUIRE(send(Action::Restore).screen==Screen::Profiles);TEST_REQUIRE(send(Action::Profile,"1").screen==Screen::Home);TEST_REQUIRE(send(Action::Details,"1").screen==Screen::Details);
  for(int n=0;n<3;++n){
@@ -88,7 +91,12 @@ int main(int argc,char **argv){
  player.music_mode=true;TEST_REQUIRE(plex::save_credentials(root+"/account.json","host-device","account-token"));send(Action::Restore);send(Action::Profile,"1");send(Action::Details,"500");auto music=send(Action::QueuePlay);TEST_REQUIRE(music.music_total==2&&music.detail.id=="101");
  TEST_REQUIRE(until([&]{return player.samples>=4800;}));send(Action::Tick);send(Action::Pause);TEST_REQUIRE(until([&]{return player.paused();}));send(Action::Pause);send(Action::MusicHome);music=send(Action::Tick);TEST_REQUIRE(music.music_active&&music.screen==Screen::Home);
  send(Action::MusicOpen);music=send(Action::MusicNext);TEST_REQUIRE(music.detail.id=="102");TEST_REQUIRE(until([&]{return player.samples>=4800;}));send(Action::Tick);send(Action::MusicRepeat);send(Action::MusicRepeat);auto opens=player.opens;
- TEST_REQUIRE(until([&]{send(Action::Tick);return player.opens>opens;}));music=send(Action::Tick);TEST_REQUIRE(music.music_active&&music.detail.id=="102"&&music.music_repeat==2);send(Action::Stop);auto samples=player.samples.load();std::this_thread::sleep_for(std::chrono::milliseconds(100));TEST_REQUIRE(player.samples==samples);send(Action::SignOut);
- std::cout<<"PASS: real AAC audio queue, pause/resume, background mini-player, next track, end/repeat-one reopen and stopped callback ownership through Session\n";
+ TEST_REQUIRE(until([&]{send(Action::Tick);return player.opens>opens;}));music=send(Action::Tick);TEST_REQUIRE(music.music_active&&music.detail.id=="102"&&music.music_repeat==2);send(Action::Details,"101");send(Action::QueueAdd,"later");auto queue=send(Action::Queue);TEST_REQUIRE(queue.music_total==3&&queue.queue_ids[0]!=queue.queue_ids[2]);auto playing=queue.queue_ids[size_t(queue.music_cursor)];auto duplicate=queue.queue_ids.back();auto before_edit=player.opens;
+ session.dispatch({Action::QueueEdit,duplicate,"up"});queue=send(Action::Queue);TEST_REQUIRE(queue.queue_ids[size_t(queue.music_cursor)]==playing&&player.opens==before_edit);
+ session.dispatch({Action::QueueEdit,duplicate,"play"});TEST_REQUIRE(until([&]{return player.samples>=4800&&player.position()>=500;}));send(Action::Tick);
+ send(Action::Stop);auto samples=player.samples.load();std::this_thread::sleep_for(std::chrono::milliseconds(100));TEST_REQUIRE(player.samples==samples);session.shutdown();
+ auto stopped_opens=player.opens;Session restored(transport,root,player,[&]{return clock;});auto saved=restored.dispatch({Action::Restore,{},{}});TEST_REQUIRE(saved.music_restored&&saved.music_available&&!saved.music_active&&player.opens==stopped_opens);
+ restored.dispatch({Action::QueueResume,{},{}});TEST_REQUIRE(until([&]{return player.samples>=4800;}));restored.dispatch({Action::Tick,{},{}});restored.dispatch({Action::MusicHome,{},{}});auto background_opens=player.opens;TEST_REQUIRE(until([&]{saved=restored.dispatch({Action::Tick,{},{}});return player.opens>background_opens;}));TEST_REQUIRE(saved.screen==Screen::Home&&saved.music_active);restored.dispatch({Action::Stop,{},{}});restored.dispatch({Action::SignOut,{},{}});
+ std::cout<<"PASS: real AAC queue, stable duplicate edits, background/next/repeat-one, persisted restart without autoplay, resumed decode and stopped callback ownership through Session\n";
  std::filesystem::remove_all(root);
 }

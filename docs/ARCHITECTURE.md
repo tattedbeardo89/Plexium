@@ -78,3 +78,13 @@ playing item while navigation changes the browsed item, preventing progress from
 attributed to the wrong title. It releases the prior player/session before queue moves.
 Cached metadata above the admission threshold remains usable for the current item but
 is not duplicated into detail caches. Hardware and DVR gates remain unchanged.
+
+## Music and reliability extension
+
+See [MUSIC-RELIABILITY.md](MUSIC-RELIABILITY.md) for stable queue identities, private
+restoration, explicit audio focus, next-metadata pre-resolution, bounded reconnect,
+accounted byte budgets and the read-only audio-fallback boundary. Production worker
+logic is in `app/music.cc` and `app/reliability.cc`, linked in every host/native mode.
+The new music reliability suite joins normal, sanitizer and NDEBUG acceptance; the
+shared native View has 35 screenshot fixtures. Real PMS and physical PS5 testing remain
+unrun by instruction; hardware and production DVR gates are unchanged.

@@ -13,6 +13,8 @@
 #include "plex/guide_preferences.h"
 #include "preferences.h"
 #include "notices.h"
+#include "music_store.h"
+#include "reconnect.h"
 #include <deque>
 #include <thread>
 #include "runtime/owned_jobs.h"
@@ -25,13 +27,17 @@ inline constexpr const char *title_id="PPSA85421";
 inline constexpr const char *data_path=PLEX_STATE_ROOT;
 enum class PlaybackState {Idle,Resolving,Opening,Buffering,Playing,Paused,Seeking,Stopping,Stopped,Error,Released};
 struct PlaybackObservation {bool known=false,playing=false,buffering=false,paused=false,ended=false,failed=false;};
-enum class Screen { Welcome, Linking, Profiles, Pin, Servers, Home, Library, Details, Settings, Search, Playback, Guide, Tracks, Recordings, Notices };
-enum class Action { Restore, Link, Poll, Cancel, Profile, Server, Home, Library, Browse, Page, Details, Children, Search, Play, FreeTV, PlayLive, Stop, Settings, SignOut, Back, Pause, Seek, Audio, Subtitle, Tick, LiveTV, GuidePage, TuneChannel, Version, Quality, Tracks, SelectAudio, SelectSubtitle, AutoPlay, CancelNext, PlayNext, SkipMarker, FavoriteChannel, FavoriteFilter, MiniGuide, ChannelStep, LastChannel, Recordings, Restart, MarkWatched, Chapter, FastSeek, PlaybackInfo, RetryPlayback, EpisodePrevious, EpisodeNext, QueuePlay, MusicNext, MusicPrevious, MusicShuffle, MusicRepeat, MusicHome, MusicOpen, Suggest, Setting, Diagnose, Notices, OpenNotice };
+enum class Screen { Welcome, Linking, Profiles, Pin, Servers, Home, Library, Details, Settings, Search, Playback, Guide, Tracks, Recordings, Notices, Queue };
+enum class Action { Restore, Link, Poll, Cancel, Profile, Server, Home, Library, Browse, Page, Details, Children, Search, Play, FreeTV, PlayLive, Stop, Settings, SignOut, Back, Pause, Seek, Audio, Subtitle, Tick, LiveTV, GuidePage, TuneChannel, Version, Quality, Tracks, SelectAudio, SelectSubtitle, AutoPlay, CancelNext, PlayNext, SkipMarker, FavoriteChannel, FavoriteFilter, MiniGuide, ChannelStep, LastChannel, Recordings, Restart, MarkWatched, Chapter, FastSeek, PlaybackInfo, RetryPlayback, EpisodePrevious, EpisodeNext, QueuePlay, MusicNext, MusicPrevious, MusicShuffle, MusicRepeat, MusicHome, MusicOpen, Suggest, Setting, Diagnose, Notices, OpenNotice, Queue, QueueEdit, QueueAdd, QueueResume, MusicPause, ReconnectServer };
 struct Command { Action action; std::string id, text; };
 struct MediaContext {std::string base,token,scope,account_token;};
 struct Destination {std::string id,label;};
 struct Model {
  Preferences preferences;
+ std::string connection_label;
+ bool music_available=false,music_paused=false,music_restored=false;
+ size_t queue_offset=0,cache_bytes=0,cache_evictions=0,queue_bytes=0,prefetch_bytes=0;
+ std::vector<plex::Item> queue_rows;std::vector<std::string> queue_ids;
  std::vector<std::string> notice_labels;
  std::string notice_body,account_label;
  std::string build_sha,build_date,app_version,runtime_info,audio_preference,subtitle_preference,search_scope;
@@ -91,6 +97,30 @@ class Session {
  bool preferred_autoplay=true,audio_preference_dirty=false,subtitle_preference_dirty=false,connection_verified=false;
  PreferenceStore preferences;
  plex::AudioQueue audio_queue;
+ MusicStore music_store;
+ int64_t saved_music_position=0;double music_saved_at=0,music_reported_at=0;bool music_restored=false,music_interrupted=false,network_music_resume=false;
+ size_t queue_offset=0,cache_evictions=0;uint64_t queue_epoch=0;
+ plex::Item prefetched_audio;uint64_t prefetched_uid=0,prefetched_revision=0;double prefetched_at=0;
+ uint64_t prefetch_attempt_uid=0,prefetch_attempt_revision=0;double prefetch_attempt_at=0;
+ Reconnect reconnect;bool authorization_cleared=false;
+ std::vector<uint64_t> restore_validation;size_t restore_validation_at=0;unsigned restore_validation_failures=0;
+ void validate_music();
+ void queue_command(const Command&);
+ void save_music(bool force=false);
+ void bind_music();
+ void prefetch_music();
+ bool audio_metadata(const plex::Item&)const;
+ bool music_focus_video();
+ void resume_after_video(const Command&);
+ void network_result(const plex::Result&);
+ void reliability_tick();
+ bool reconnect_server();
+ void revoke_connection();
+ bool connection_guard(const Command&);
+ void trim_caches();
+ void push_history();
+ void cache_page(const std::string&);
+ void queue_snapshot();
  plex::Item playing_audio;
  bool audio_active=false,audio_started=false;int64_t audio_resume=-1;
  void decorate();
@@ -100,7 +130,9 @@ class Session {
  void music_command(const Command&);
  bool music_tick();
  bool stop_audio(int64_t captured=-1);
- bool open_audio();
+ plex::TrackSelection music_tracks;
+ void apply_music_tracks();
+ bool open_audio(bool background=false);
  void report_audio(const std::string&,int64_t);
  void restore_command();
  void sign_out_command();

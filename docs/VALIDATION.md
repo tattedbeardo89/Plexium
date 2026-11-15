@@ -97,3 +97,13 @@ background browse, pause/resume, next, end/repeat-one/reopen and stopped callbac
 Native raster coverage expands to 26 screens, including all Settings sections, search,
 series details, video info, music, notices and safe area. All remain synthetic host
 acceptance. No real-PMS or physical testing is attempted in this milestone.
+
+## Music and reliability extension
+
+See [MUSIC-RELIABILITY.md](MUSIC-RELIABILITY.md) for stable queue identities, private
+restoration, explicit audio focus, next-metadata pre-resolution, bounded reconnect,
+accounted byte budgets and the read-only audio-fallback boundary. Production worker
+logic is in `app/music.cc` and `app/reliability.cc`, linked in every host/native mode.
+The new music reliability suite joins normal, sanitizer and NDEBUG acceptance; the
+shared native View has 35 screenshot fixtures. Real PMS and physical PS5 testing remain
+unrun by instruction; hardware and production DVR gates are unchanged.

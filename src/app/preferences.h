@@ -3,7 +3,7 @@
 #include "runtime/private_json.h"
 #include "plex/home.h"
 namespace plexium {
-struct Preferences {int theme=0,safe_area=0;bool artwork=true,clock=true,direct_play=true;};
+struct Preferences {int theme=0,safe_area=0;bool artwork=true,clock=true,direct_play=true,resume_music=false,reconnect_music=true;};
 class PreferenceStore {
  plex::Json profiles=plex::Json::object();std::string path,scope;bool writable=false;
  public:
@@ -15,9 +15,9 @@ class PreferenceStore {
   else if(errno!=ENOENT)return false;
   auto p=profiles.find(id);if(p!=profiles.end()){
    if(!p->is_object())return false;value.theme=int(std::clamp<int64_t>(plex::number(*p,"theme"),0,2));value.safe_area=int(std::clamp<int64_t>(plex::number(*p,"safe_area"),0,5));
-   value.artwork=plex::flag(*p,"artwork",true);value.clock=plex::flag(*p,"clock",true);value.direct_play=plex::flag(*p,"direct_play",true);
+   value.resume_music=plex::flag(*p,"resume_music");value.reconnect_music=plex::flag(*p,"reconnect_music",true);value.artwork=plex::flag(*p,"artwork",true);value.clock=plex::flag(*p,"clock",true);value.direct_play=plex::flag(*p,"direct_play",true);
   }writable=true;return true;
  }
- bool save(){if(!writable||(!profiles.contains(scope)&&profiles.size()>=64))return false;profiles[scope]={{"theme",value.theme},{"safe_area",value.safe_area},{"artwork",value.artwork},{"clock",value.clock},{"direct_play",value.direct_play}};return write_private_json(path,plex::Json{{"schema",1},{"profiles",profiles}});}
+ bool save(){if(!writable||(!profiles.contains(scope)&&profiles.size()>=64))return false;profiles[scope]={{"theme",value.theme},{"safe_area",value.safe_area},{"artwork",value.artwork},{"clock",value.clock},{"direct_play",value.direct_play},{"resume_music",value.resume_music},{"reconnect_music",value.reconnect_music}};return write_private_json(path,plex::Json{{"schema",1},{"profiles",profiles}});}
 };
 }
