@@ -31,7 +31,7 @@ int main(){
  model=send(Action::MiniGuide);TEST_REQUIRE(model.guide.mini);model=send(Action::Recordings);TEST_REQUIRE(model.screen==Screen::Recordings&&model.recording_rows.size()==3&&mutations==0);
  send(Action::Home,"profiles");send(Action::Profile,"2");model=send(Action::LiveTV);TEST_REQUIRE(profile=="2"&&model.guide.total==640&&!model.guide.favorites_only&&!model.guide.channels[0].favorite);
  send(Action::Home,"profiles");send(Action::Profile,"1");model=send(Action::LiveTV);TEST_REQUIRE(model.guide.total==1&&model.guide.channels[0].favorite);
- expired=true;model=send(Action::GuidePage,"refresh");TEST_REQUIRE(model.guide.channels.empty()&&!model.message.empty());expired=false;model=send(Action::GuidePage,"refresh");TEST_REQUIRE(!model.guide.channels.empty());
+ expired=true;model=send(Action::GuidePage,"refresh");TEST_REQUIRE(model.guide.channels.empty()&&!model.message.empty()&&session.media_context().token.empty());expired=false;auto denied_calls=lineup_calls;model=send(Action::GuidePage,"refresh");TEST_REQUIRE(model.guide.channels.empty()&&lineup_calls==denied_calls);send(Action::ReconnectServer);model=send(Action::LiveTV);TEST_REQUIRE(!model.guide.channels.empty());
  offline=true;model=send(Action::GuidePage,"refresh");TEST_REQUIRE(model.guide.stale&&!model.guide.channels.empty());offline=false;send(Action::GuidePage,"refresh");
  model=send(Action::FavoriteChannel,id);TEST_REQUIRE(model.guide.channels.empty()&&model.guide.favorites_only);send(Action::FavoriteFilter);configured=false;model=send(Action::GuidePage,"refresh");TEST_REQUIRE(!model.guide.configured&&model.guide.channels.empty());
  session.shutdown();TEST_REQUIRE(mutations==0&&player.opens==0);send(Action::SignOut);std::filesystem::remove_all(root);

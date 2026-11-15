@@ -17,7 +17,7 @@ __attribute__((noinline)) void Session::report_audio(const std::string &state,in
 }
 __attribute__((noinline)) bool Session::stop_audio(int64_t captured){
  if(!audio_active)return true;auto observation=player.observe();auto position=captured>=0?captured:observation.failed?playing_audio.offset:observation.ended&&playing_audio.duration>0?playing_audio.duration:player.position();position=std::clamp<int64_t>(position,0,playing_audio.duration>0?playing_audio.duration:INT64_MAX);
- bool observed=audio_started||!observation.known||(!observation.failed&&(observation.playing||observation.paused));player.stop();auto stopped=player.observe();if(stopped.known&&(stopped.playing||stopped.paused||stopped.buffering)){playing_audio.offset=position;save_music(true);model.message="Music stop is incomplete; ownership was retained. Retry Stop.";return false;}if(observed){playing_audio.offset=position;report_audio("stopped",position);}
+ bool observed=audio_started||!observation.known||(!observation.failed&&(observation.playing||observation.paused||observation.ended));player.stop();auto stopped=player.observe();if(stopped.known&&(stopped.playing||stopped.paused||stopped.buffering)){playing_audio.offset=position;save_music(true);model.message="Music stop is incomplete; ownership was retained. Retry Stop.";return false;}if(observed){playing_audio.offset=position;report_audio("stopped",position);}
  if(!close_stream()){model.message="Music session cleanup failed. Retry Stop before opening another item.";return false;}
  audio_active=false;audio_started=false;saved_music_position=playing_audio.offset;save_music(true);return true;
 }
@@ -32,6 +32,11 @@ __attribute__((noinline)) bool Session::open_audio(bool background){
  if(!open_playback())return false;playing_audio=model.detail;music_tracks=model.tracks;audio_active=true;audio_started=false;music_restored=false;music_interrupted=false;audio_queue.entries[audio_queue.order[audio_queue.cursor]]=plex::AudioQueue::compact(playing_audio);save_music(true);return true;
 }
 __attribute__((noinline)) void Session::music_command(const Command &c){
+ // End notifications are observations, never unconditional queue advances. A
+ // delayed render-thread notification must not skip the newly opened track.
+ const bool natural=c.action==Action::MusicNext&&c.text=="ended";
+ if(natural){auto observed=player.observe();if(!audio_active||!observed.ended||observed.failed)return;}
+ struct Deferred {Session &owner;bool prior,on;Deferred(Session&s,bool enabled):owner(s),prior(s.defer_music_progress),on(enabled){owner.defer_music_progress=enabled||prior;}~Deferred(){owner.defer_music_progress=prior;if(on&&!prior)owner.flush_progress();}} deferred(*this,natural);
  if(c.action==Action::MusicHome){home();return;}
  if(c.action==Action::MusicOpen){if(audio_active){model.detail=playing_audio;model.media_version=0;load_tracks();model.tracks=music_tracks;model.screen=Screen::Playback;}else queue_command({Action::QueueResume,{},{}});return;}
  if(c.action==Action::MusicShuffle){prefetched_uid=0;prefetched_audio={};if(audio_queue.shuffled)audio_queue.unshuffle();else audio_queue.shuffle(uint32_t(++playback_serial));save_music(true);return;}
@@ -58,7 +63,7 @@ __attribute__((noinline)) bool Session::music_tick(){
  if(!audio_active)return false;auto observation=player.observe();
  if(observation.failed){if(reconnect.offline){network_music_resume=!player.paused()&&preferences.value.reconnect_music;stop_audio(playing_audio.offset);}model.playback_state=PlaybackState::Error;model.message="Decoder failure: music stopped. Retry this track or choose another.";return true;}
  bool prior_paused=model.paused;playing_audio.offset=std::max<int64_t>(0,player.position());saved_music_position=playing_audio.offset;save_music();model.paused=player.paused();
- if(observation.ended){if(playing_audio.duration>0)playing_audio.offset=playing_audio.duration;report_audio("stopped",playing_audio.offset);music_command({Action::MusicNext,{},"ended"});return true;}
+ if(observation.ended){if(playing_audio.duration>0)playing_audio.offset=playing_audio.duration;music_command({Action::MusicNext,{},"ended"});return true;}
  if(observation.playing||observation.paused){bool first=!audio_started;audio_started=true;model.playback_state=observation.paused?PlaybackState::Paused:PlaybackState::Playing;if(first||prior_paused!=model.paused||now()-music_reported_at>=10)report_audio(observation.paused?"paused":"playing",playing_audio.offset);}else model.playback_state=PlaybackState::Buffering;
  apply_music_tracks();
  if(model.screen==Screen::Playback||(model.screen==Screen::Tracks&&model.tracks_during_playback)){model.detail=playing_audio;model.media_version=0;model.audio_tracks=plex::media_tracks(playing_audio,0,false);model.subtitle_tracks=plex::media_tracks(playing_audio,0,true);model.tracks=music_tracks;}

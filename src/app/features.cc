@@ -70,7 +70,7 @@ __attribute__((noinline)) void Session::search_command(const Command &c){
  cache_page(key);
 }
 __attribute__((noinline)) void Session::settings_command(const Command &c){
- if(c.action==Action::Diagnose){auto bounded=client.bounded(700,1200);auto identity=bounded.identity(base,token,server_id);auto libraries=identity?bounded.sections(base,token):plex::Result{{},"Identity verification failed",identity.status};model.connected=bool(identity)&&bool(libraries);connection_verified=model.connected;model.message=model.connected?"Server identity and library authorization verified over HTTPS.":"Server connection could not be verified. Select your server again.";return;}
+ if(c.action==Action::Diagnose){auto bounded=client.bounded(700,1200);auto identity=bounded.identity(base,token,server_id);network_result(identity);auto libraries=identity?bounded.sections(base,token):plex::Result{{},"Identity verification failed",identity.status};network_result(libraries);model.connected=bool(identity)&&bool(libraries);connection_verified=model.connected;model.message=model.connected?"Server identity and library authorization verified over HTTPS.":"Server connection could not be verified. Select your server again.";return;}
  if(c.id=="theme")preferences.value.theme=(preferences.value.theme+1)%3;
  else if(c.id=="safe_area")preferences.value.safe_area=preferences.value.safe_area==0?3:preferences.value.safe_area==3?5:0;
  else if(c.id=="artwork")preferences.value.artwork=!preferences.value.artwork;
@@ -93,7 +93,10 @@ __attribute__((noinline)) bool Session::feature_command(const Command &c){
  case Action::Search:case Action::Suggest:search_command(c);return true;
  case Action::Setting:case Action::Diagnose:settings_command(c);return true;
  case Action::QueuePlay:case Action::MusicNext:case Action::MusicPrevious:case Action::MusicShuffle:case Action::MusicRepeat:case Action::MusicHome:case Action::MusicOpen:music_command(c);return true;
- case Action::Tick:reliability_tick();if(reconnect.blocked)return true;validate_music();if(music_tick())return true;return false;
+ case Action::Tick:
+  // Drain an observed end before optional health/restore metadata requests.
+  if(audio_active&&!reconnect.blocked){auto observed=player.observe();if(observed.ended&&!observed.failed){music_tick();reliability_tick();return true;}}
+  reliability_tick();if(reconnect.blocked)return true;validate_music();if(music_tick())return true;return false;
  case Action::Play:if(model.detail.type=="track"){music_command({Action::QueuePlay,{},{}});return true;}if(!music_focus_video())return true;return false;
  case Action::Stop:if(!audio_active&&music_interrupted){stop_command(c);resume_after_video(c);return true;}if(audio_active){if(c.id=="ended")music_command({Action::MusicNext,{},"ended"});else {stop_audio(c.text.empty()?-1:plex::number(plex::Json{{"position",c.text}},"position",-1));model.detail=playing_audio;model.screen=Screen::Details;}return true;}return false;
  case Action::Back:if(audio_active&&model.screen==Screen::Playback){home();return true;}return false;

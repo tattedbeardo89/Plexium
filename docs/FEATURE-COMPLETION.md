@@ -22,7 +22,7 @@ in draft PR #2; NATIVE-COMPILED requires a successful matching native manifest.
 | Recordings | Read-only rules, schedule, completed list/description and opening completed library metadata | Recording requests/cancellation remain disabled. Permissions and live provider behavior are unverified. No separate DVR/tuner/ErsatzTV backend. |
 | Settings / appearance | Account/profile/sign-out, server/diagnostics, quality/direct-play/languages/autoplay, themes, fitted UI safe area, artwork/time controls, actual version/SHA/source date/runtime and installed notices viewer | Atomic owner-only schema-1 preferences per account/profile/server. Unknown schema preserved. No tokens, PINs, addresses or playback URLs in diagnostics. Host build identity regenerates when HEAD changes; native identity uses pinned build stamps. |
 | Artwork / metadata memory | Existing scoped 64 MiB GPU / bounded disk cache and owned workers preserved; large media metadata excluded from detail/page caches above 512 KiB; no render-thread I/O | Existing artwork/GPU allocation/timeout/retention tests retained. Page/metadata/history/Home caches now also enforce accounted byte budgets; queues, lineup/provider metadata, prefetch and decoded artwork are bounded. Accounting is not total native RSS or a driver-memory guarantee. |
-| Native UI | Shared production canvas, measured text fitting, safe-area/1080p/4K layout, avatar/art aspect handling, stable focus and responsive worker loading | 35 nonblank distinct native-view screenshots plus controller scenarios. This is HOST-TESTED rendering, not console presentation acceptance. |
+| Native UI | Shared production canvas, measured text fitting, safe-area/1080p/4K layout, avatar/art aspect handling, stable focus and responsive worker loading | 38 nonblank distinct native-view screenshots plus controller scenarios. This is HOST-TESTED rendering, not console presentation acceptance. |
 | 4K preparation | Existing 8/10-bit substrate preserved; overflow-safe surface-only memory estimates and host budget pressure checks | NOT functional 4K acceptance. No decoder eviction, arena free or speculative driver/kernel call added. See 4K-SOURCE-REVIEW.md. |
 | Native delivery | Separate startup-only and full application modes, source/debug/signing/ZIP/license/hold checks | Both require matching exact-head CI. Full source compilation is not REAL-PMS-TESTED or PS5-TESTED behavior. |
 
@@ -38,3 +38,7 @@ REAL-PMS-TESTED and PS5-TESTED are pending by user instruction; no access is req
 The original reboot cause, display-engine presentation completion, native audio-close
 ABI, decoder cache/arena release contracts, hardware 4K and native playback acceptance
 remain unresolved. Safe retention and all existing fault diagnostics remain intact.
+
+## Continuity and release-readiness audit
+
+See [AUDIO-CONTINUITY.md](AUDIO-CONTINUITY.md) for actual PCM measurement, bounded optional soak and timing limits, and [RELEASE-READINESS.md](RELEASE-READINESS.md) for screen/action/source evidence, corrected defects and external acceptance blockers. Latest exact-source CI and held hashes remain in draft PR #2.

@@ -25,7 +25,7 @@ std::string poster(const plex::Item &item) {
 }
 double Session::now()const{if(clock)return clock();return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();}
 Session::Session(plex::Transport t,const std::string &path,PlaybackPort &p,std::function<double()> monotonic_clock):client(std::move(t),"pending"),clock(std::move(monotonic_clock)),root(path),player(p){}
-void Session::fail(const char *stage,int status){model.message=std::string(stage)+(status?" (HTTP "+std::to_string(status)+")":"")+". Retry or return with Circle.";}
+void Session::fail(const char *stage,int status){if(!base.empty()&&(status==401||status==403))network_result(plex::Result{{},"Authorization failed",status});model.message=std::string(stage)+(status?" (HTTP "+std::to_string(status)+")":"")+". Retry or return with Circle.";}
 bool Session::private_root(){
  struct stat s{};
  if(mkdir(root.c_str(),0700)!=0 && errno!=EEXIST)return false;
@@ -110,10 +110,10 @@ void Session::flush_progress(){
 }
 void Session::report_progress(const std::string &state,int64_t position){
  if(model.detail.type=="channel"||base.empty()||token.empty())return;
- if(last_ack_session==playback_session&&last_ack_id==model.detail.id&&last_ack_state==state&&last_ack_position==position){flush_progress();return;}
+ if(last_ack_session==playback_session&&last_ack_id==model.detail.id&&last_ack_state==state&&last_ack_position==position){if(!defer_music_progress)flush_progress();return;}
  if(!outbox.put(model.detail,state,position,std::time(nullptr),playback_session)){model.message="Progress journal capacity reached; previous updates were preserved.";return;}
  for(auto &u:outbox.entries)if(u.item.id==model.detail.id){u.baseline=playback_baseline;u.baseline_viewed=playback_viewed;}
- persist_progress();flush_progress();
+ persist_progress();if(!defer_music_progress)flush_progress();
 }
 void Session::shutdown(){
  if(audio_active)stop_audio(playing_audio.offset);

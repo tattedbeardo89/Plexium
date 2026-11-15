@@ -1,0 +1,35 @@
+name: Optional host audio reliability soak
+on:
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: 'Minimum natural playback duration (0–3600 seconds)'
+        default: '900'
+      cycles:
+        description: 'Minimum natural transitions (4–1000)'
+        default: '100'
+permissions:
+  contents: read
+jobs:
+  soak:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Install actual host VLC prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ make pkg-config libvlc-dev vlc-plugin-base ffmpeg libfontconfig-dev libpixman-1-dev
+      - name: Bounded actual PCM soak
+        env:
+          CONTINUITY_SECONDS: ${{ inputs.seconds }}
+          CONTINUITY_CYCLES: ${{ inputs.cycles }}
+        run: python3 ci/run-check.py continuity-soak bash host/test-audio-continuity.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: Plexium-optional-soak-${{ github.sha }}
+          path: artifacts/logs/
+          retention-days: 14

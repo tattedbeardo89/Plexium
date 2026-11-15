@@ -71,8 +71,9 @@ int main(){
  auto begins=m.guide.begins;m=session.dispatch({Action::GuidePage,"later",{}});TEST_REQUIRE(m.guide.begins==begins+3600);
  auto guide_count=m.guide.channels.size();auto guide_begin=m.guide.begins;
  dvr_mode=3;m=session.dispatch({Action::LiveTV,{},"refresh"});TEST_REQUIRE(m.guide.stale&&m.guide.channels.size()==guide_count&&m.guide.begins==guide_begin&&m.message.find("cached")!=std::string::npos);
- dvr_mode=2;m=session.dispatch({Action::LiveTV,{},"refresh"});TEST_REQUIRE(m.screen==Screen::Guide&&m.guide.channels.empty()&&m.message.find("403")!=std::string::npos);
+ dvr_mode=2;m=session.dispatch({Action::LiveTV,{},"refresh"});TEST_REQUIRE(m.screen==Screen::Profiles&&m.guide.channels.empty()&&m.connection_label=="Authorization required"&&session.media_context().token.empty());
  before=requests;m=session.dispatch({Action::Home,{},{}});TEST_REQUIRE(requests==before);
+ dvr_mode=1;m=session.dispatch({Action::ReconnectServer,{},{}});TEST_REQUIRE(m.connected);
  m=session.dispatch({Action::Library,"1",{}});TEST_REQUIRE(m.screen==Screen::Library&&m.library_tab=="recommended"&&!m.rails.empty());
  before=requests;m=session.dispatch({Action::Library,"1",{}});TEST_REQUIRE(requests==before);
  m=session.dispatch({Action::Library,"1","all"});TEST_REQUIRE(m.entries.size()==60&&m.total==3700&&m.page_start==0);

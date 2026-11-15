@@ -73,10 +73,12 @@ $(OUT)/playback-integration-tests: $(CORE) $(APP) $(OBJ)/tests/playback_integrat
 	@mkdir -p $(dir $@)
 	$(CXX) $^ $(LDFLAGS) -o $@
 
-$(OBJ)/tests/host_vlc_tests.o: CXXFLAGS += $(if $(VLC_HOST_CFLAGS),$(VLC_HOST_CFLAGS),$(shell pkg-config --cflags libvlc fontconfig pixman-1)) -fopenmp
-$(OUT)/host-vlc-tests: $(CORE) $(APP) $(OBJ)/tests/host_vlc_tests.o
+$(OBJ)/tests/host_vlc_tests.o $(OBJ)/tests/audio_continuity_tests.o: CXXFLAGS += $(if $(VLC_HOST_CFLAGS),$(VLC_HOST_CFLAGS),$(shell pkg-config --cflags libvlc fontconfig pixman-1)) -fopenmp
+$(OUT)/host-vlc-tests $(OUT)/audio-continuity-tests: $(CORE) $(APP)
 	@mkdir -p $(dir $@)
 	$(CXX) $^ $(LDFLAGS) $(if $(VLC_HOST_LIBS),$(VLC_HOST_LIBS),$(shell pkg-config --libs libvlc fontconfig pixman-1)) -l:libfontconfig.so.1 -l:libpixman-1.so.0 -fopenmp -o $@
+$(OUT)/host-vlc-tests: $(OBJ)/tests/host_vlc_tests.o
+$(OUT)/audio-continuity-tests: $(OBJ)/tests/audio_continuity_tests.o
 
 $(OUT)/track-selection-tests: $(CORE) $(OBJ)/tests/track_selection_tests.o
 	$(CXX) $^ $(LDFLAGS) -o $@

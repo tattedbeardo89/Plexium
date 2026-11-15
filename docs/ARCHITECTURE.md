@@ -88,3 +88,7 @@ logic is in `app/music.cc` and `app/reliability.cc`, linked in every host/native
 The new music reliability suite joins normal, sanitizer and NDEBUG acceptance; the
 shared native View has 35 screenshot fixtures. Real PMS and physical PS5 testing remain
 unrun by instruction; hardware and production DVR gates are unchanged.
+
+## PCM measurement and audit extension
+
+Natural Music end notifications are revalidated on the Session worker. The native loop wakes a coalesced Tick rather than repeatedly queuing unconditional advances. Outgoing stopped progress is durably saved before open; transmission and optional health work follow the next open. The host VLC adapter has opt-in bounded PCM traces and a cancellable clock-paced silent drain, distinct from physical output. See [AUDIO-CONTINUITY.md](AUDIO-CONTINUITY.md) and [RELEASE-READINESS.md](RELEASE-READINESS.md). Native ownership/hold contracts remain unchanged.

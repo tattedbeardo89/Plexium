@@ -122,7 +122,7 @@ class Session {
  void cache_page(const std::string&);
  void queue_snapshot();
  plex::Item playing_audio;
- bool audio_active=false,audio_started=false;int64_t audio_resume=-1;
+ bool audio_active=false,audio_started=false,defer_music_progress=false;int64_t audio_resume=-1;
  void decorate();
  bool feature_command(const Command&);
  void settings_command(const Command&);

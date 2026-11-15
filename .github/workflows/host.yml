@@ -75,6 +75,10 @@ jobs:
         run: |
           python3 ci/run-check.py host-vlc bash host/test-vlc-integration.sh
           SANITIZE=1 python3 ci/run-check.py host-vlc-san bash host/test-vlc-integration.sh
+      - name: Measure PCM transitions and bounded resource recovery
+        run: |
+          python3 ci/run-check.py continuity bash host/test-audio-continuity.sh
+          SANITIZE=1 python3 ci/run-check.py continuity-san bash host/test-audio-continuity.sh
       - name: Collect bounded failure summary
         if: failure()
         run: python3 ci/collect-failure.py

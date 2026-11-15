@@ -52,7 +52,7 @@ __attribute__((noinline)) bool Session::reconnect_server(){
  auto checked=bounded.select(*selected,false,route,nullptr,base);network_result(checked);if(!checked)return false;
  auto sections=plex::items(checked.data,false);
  // Rebind only this machineIdentifier; no call to discover/connect may auto-select another server.
- bool reauthorized=authorization_cleared;model.profile_name=home_user->name;model.profile_avatar=home_user->avatar;model.server_name=selected->name;
+ bool reauthorized=authorization_cleared;model.profile_name=home_user->name;model.profile_avatar=home_user->avatar;model.server_name=selected->name;model.profiles=available;
  local_connection=std::any_of(selected->connections.begin(),selected->connections.end(),[&](const auto&c){return c.uri==route&&c.local;});base=route;token=selected->token;if(!stream.session.empty()){stream_base=route;stream_token=token;}model.sections=std::move(sections);model.navigation=navigation(model.sections);resources=std::move(servers);model.servers.clear();for(const auto&s:resources)model.servers.push_back({s.id,s.name});
  history.clear();pages.clear();metadata.clear();cached_home.clear();personal_channels=plex::Json::array();personal_loaded=0;model.guide.stale=true;home_loaded=-1;prefetched_uid=0;prefetched_audio={};
  for(size_t n=audio_queue.order.size();n-->0;){const auto&i=audio_queue.entries[audio_queue.order[n]];if(i.section_id.empty()||!audio_metadata(i)){if(n==audio_queue.cursor&&audio_active){player.stop();audio_active=false;playing_audio={};network_music_resume=false;}audio_queue.remove(n,true);}}

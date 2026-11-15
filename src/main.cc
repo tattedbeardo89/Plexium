@@ -192,7 +192,7 @@ __attribute__((noinline)) static int run_native(){
   view.avatar=[&](const std::string &url){return artwork.avatar(url,access.account_token);};plat_pad_set_private(view.sensitive(model));
   if(model.screen==plexium::Screen::Linking&&now>=poll&&!model.busy){runtime.send({plexium::Action::Poll,{},{}});poll=now+2;}
   if(now>=timeline&&!model.busy){runtime.send({plexium::Action::Tick,{},{}});timeline=now+((model.music_available||model.music_active||!model.connected||model.autoplay_remaining>0||model.playback_state==plexium::PlaybackState::Opening||model.playback_state==plexium::PlaybackState::Buffering)?1:10);}
-  if(model.music_active&&player_ended()&&!model.busy)runtime.send({plexium::Action::MusicNext,{},"ended"});
+  if(model.music_active&&player_ended()&&!model.busy)runtime.send({plexium::Action::Tick,{},{}});
   else if(model.screen==plexium::Screen::Playback&&player_ended()&&!model.busy)runtime.send({plexium::Action::Stop,"ended",{}});
   ImGui_ImplVulkan_NewFrame();io.DisplaySize={float(gfx.width),float(gfx.height)};io.DeltaTime=dt;ImGui::NewFrame();
   auto action=view.frame(model,pressed,dt);if(action){if(action->action==plexium::Action::Stop){action->text=std::to_string(player_time());if(!model.music_active)player_stop();}runtime.send(*action);}ImGui::Render();

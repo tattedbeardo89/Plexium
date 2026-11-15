@@ -155,7 +155,7 @@ std::optional<Command> View::frame(const Model&m,unsigned keys,float dt){
  if(previous!=m.screen){focus[std::to_string(int(previous))]={row,column};auto f=focus.find(std::to_string(int(m.screen)));row=f==focus.end()?-1:f->second.first;column=f==focus.end()?0:f->second.second;sidebar=false;previous=m.screen;entry.clear();playback_idle=0;playback_controls=true;}
  if(m.screen==Screen::Library){auto identity=m.library_id+":"+m.library_tab+":"+m.library_path+":"+std::to_string(m.page_start);if(identity!=listing_focus){listing_focus=identity;row=m.library_id.empty()?0:-1;column=0;auto tabs=library_tabs(m.library_type,m.books);for(size_t i=0;i<tabs.size();++i)if(tabs[i].first==m.library_tab)column=int(i);}}
  if(m.busy&&m.screen!=Screen::Playback){c.text(1550,80,"Loading…",25,c.muted);keys&=Circle;}
- if(!m.message.empty()){float message_y=m.screen==Screen::Guide?945:850;c.box(420,message_y,1400,62,IM_COL32(60,32,48,255));c.wrap(447,message_y+10,m.message,1320,24);}
+ if(!m.message.empty()){float message_y=m.screen==Screen::Settings?105:m.screen==Screen::Guide?945:850;c.box(420,message_y,1400,62,IM_COL32(60,32,48,255));c.fit(447,message_y+15,1320,m.message,24);}
  if(m.preferences.clock&&m.screen!=Screen::Guide&&m.screen!=Screen::Playback)c.text(1580,80,plex::guide_time(std::time(nullptr)),25,c.muted);
  if(m.music_available&&m.screen!=Screen::Playback){
   if((keys&(Options|Right))==(Options|Right))return command(Action::Queue);

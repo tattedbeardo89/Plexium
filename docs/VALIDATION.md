@@ -107,3 +107,7 @@ logic is in `app/music.cc` and `app/reliability.cc`, linked in every host/native
 The new music reliability suite joins normal, sanitizer and NDEBUG acceptance; the
 shared native View has 35 screenshot fixtures. Real PMS and physical PS5 testing remain
 unrun by instruction; hardware and production DVR gates are unchanged.
+
+## PCM continuity and full-client audit
+
+The audio continuity milestone adds `host/test-audio-continuity.sh`: actual AAC/MP3/FLAC/Vorbis PCM, a clock-paced silent sink, bounded transition/resource measurement and reconnect/restart/profile scenarios. Standard host VLC CI runs normal and sanitized measurements; optional `soak.yml` supports longer manual runs. Native raster acceptance has 38 distinct frames. See [measurement contract](AUDIO-CONTINUITY.md) and [source readiness audit](RELEASE-READINESS.md). Exact final results are recorded in draft PR #2; no real PMS or PS5 acceptance is implied.
