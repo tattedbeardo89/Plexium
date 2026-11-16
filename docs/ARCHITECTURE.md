@@ -92,3 +92,7 @@ unrun by instruction; hardware and production DVR gates are unchanged.
 ## PCM measurement and audit extension
 
 Natural Music end notifications are revalidated on the Session worker. The native loop wakes a coalesced Tick rather than repeatedly queuing unconditional advances. Outgoing stopped progress is durably saved before open; transmission and optional health work follow the next open. The host VLC adapter has opt-in bounded PCM traces and a cancellable clock-paced silent drain, distinct from physical output. See [AUDIO-CONTINUITY.md](AUDIO-CONTINUITY.md) and [RELEASE-READINESS.md](RELEASE-READINESS.md). Native ownership/hold contracts remain unchanged.
+
+## Mixed-format boundary extension
+
+Native amem setup validates source bounds and commits only the existing 48 kHz S16 stereo/6/8-channel contracts. A format commit clears obsolete copied PCM under the audio mutex and preserves pause; it never releases device/decoder/GPU quarantine. Healthy server probes also compare authorized section identities/types and revoke private context on reductions. Host mixed PCM uses explicit per-generation rate/channel negotiation and an independent generated/inspected source matrix. See MIXED-AUDIO-ACCEPTANCE.md for current evidence boundaries.

@@ -37,6 +37,12 @@ int main(){
  player_closing=false;stopping=false;int16_t tiny[2]={};
  amem_play(nullptr,tiny,4u*AUDIO_RATE+1,0);amem_play(nullptr,nullptr,2,0);
  TEST_REQUIRE(audio_queue.empty());
+ // Mixed decoder formats cannot carry old PCM into a newly negotiated layout.
+ vlc_channels=2;audio_paused=true;int16_t old_pcm[8]={1,2,3,4,5,6,7,8};amem_play(nullptr,old_pcm,4,100);
+ TEST_REQUIRE(audio_queued_frames==4);TEST_REQUIRE(!commit_audio_format(44100,6)&&audio_queued_frames==4);
+ TEST_REQUIRE(commit_audio_format(48000,6)&&audio_queue.empty()&&audio_queued_frames==0&&vlc_channels==6&&audio_paused);
+ TEST_REQUIRE(commit_audio_format(48000,2)&&vlc_channels==2);audio_paused=false;
+ TEST_REQUIRE(!plexium::valid_pcm_source(0,2)&&!plexium::valid_pcm_source(48000,9));
  vkDestroyBuffer=destroy_gpu<VkBuffer>;vkFreeMemory=destroy_gpu<VkDeviceMemory>;vkUnmapMemory=unmap_gpu;
  vkDestroyPipeline=destroy_gpu<VkPipeline>;vkDestroyPipelineLayout=destroy_gpu<VkPipelineLayout>;
  vkDestroyImage=destroy_gpu<VkImage>;vkDestroyImageView=destroy_gpu<VkImageView>;vkDestroyFramebuffer=destroy_gpu<VkFramebuffer>;

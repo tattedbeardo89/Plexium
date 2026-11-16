@@ -46,6 +46,7 @@ __attribute__((noinline)) std::optional<Command> View::music_frame(const Model &
  if(image&&m.preferences.artwork){auto texture=image(m.detail,false);if(texture)c.photo(100,245,480,480,texture);}
  c.fit(650,215,1150,m.detail.title,42);c.fit(650,285,1150,m.detail.artist+" · "+m.detail.album,27,c.muted);
  c.text(650,345,"Track "+std::to_string(m.music_cursor+1)+" / "+std::to_string(m.music_total)+" · Shuffle "+(m.music_shuffle?"On":"Off")+" · Repeat "+(m.music_repeat==0?"Off":m.music_repeat==1?"All":"One"),25,c.muted);
+ c.fit(650,385,1150,plex::audio_source_label(m.detail,m.media_version),22,c.muted);
  for(size_t n=0;n<m.music_preview.size()&&n<5;++n)c.text(650,425+n*65,plex::utf8_prefix(m.music_preview[n].title,65),26,n==0?c.accent:c.muted);
  if(!m.message.empty()){c.box(105,735,1695,65,IM_COL32(65,30,45,255));c.fit(125,750,1650,m.message,24);}
  c.text(105,810,duration_label(m.detail.offset)+" / "+duration_label(m.detail.duration)+" · -"+duration_label(m.detail.duration-m.detail.offset),28);

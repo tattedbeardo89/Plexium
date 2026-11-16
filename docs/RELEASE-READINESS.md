@@ -84,3 +84,7 @@ Next independently testable work: richer PCM markers/output-model diagnostics an
 longer configurable soak, including additional sample-rate/channel layouts. True
 native gaplessness requires measured output continuity and verified ownership contracts;
 unsupported music conversion requires a verified Plex lifecycle before source enablement.
+
+## Mixed-format candidate extension
+
+See [MIXED-AUDIO-ACCEPTANCE.md](MIXED-AUDIO-ACCEPTANCE.md) for the independently decoded rate/layout matrix, calibrated timing, resource/partial-result reporting and extended-soak evidence. Native format boundaries now discard only obsolete copied PCM while preserving pause, and HTTP-200 library permission reductions fail closed. Production raster coverage is 40 frames. These are source corrections with host tests; matching native compilation remains an exact-head CI condition. [Future hardware plan](HARDWARE-ACCEPTANCE-PLAN.md) retains NO-GO and all external acceptance blockers.

@@ -74,6 +74,10 @@ __attribute__((noinline)) void Session::reliability_tick(){
  if(base.empty()||token.empty()||reconnect.blocked)return;
  if(!connection_verified&&!reconnect.offline)reconnect.lost(now(),0);
  if(reconnect.ready(now())){if(!reconnect_server()&&!reconnect.blocked)reconnect.failed(now());return;}
- if(!reconnect.offline&&now()>=reconnect.probe){reconnect.probe=now()+30;auto r=client.bounded(500,900).identity(base,token,server_id);network_result(r);if(r){auto access=client.bounded(500,900).sections(base,token);network_result(access);}}
+ if(!reconnect.offline&&now()>=reconnect.probe){reconnect.probe=now()+30;auto r=client.bounded(500,900).identity(base,token,server_id);network_result(r);if(r){auto access=client.bounded(500,900).sections(base,token);network_result(access);
+  if(access){auto authorized=plex::items(access.data,false);bool reduced=std::any_of(model.sections.begin(),model.sections.end(),[&](const auto&old){return std::none_of(authorized.begin(),authorized.end(),[&](const auto&fresh){return fresh.id==old.id&&fresh.type==old.type;});});
+   if(reduced){revoke_connection();model.message="Library access changed or could not be confirmed. Revalidate the selected profile/server.";}
+  }
+ }}
 }
 }

@@ -111,3 +111,7 @@ unrun by instruction; hardware and production DVR gates are unchanged.
 ## PCM continuity and full-client audit
 
 The audio continuity milestone adds `host/test-audio-continuity.sh`: actual AAC/MP3/FLAC/Vorbis PCM, a clock-paced silent sink, bounded transition/resource measurement and reconnect/restart/profile scenarios. Standard host VLC CI runs normal and sanitized measurements; optional `soak.yml` supports longer manual runs. Native raster acceptance has 38 distinct frames. See [measurement contract](AUDIO-CONTINUITY.md) and [source readiness audit](RELEASE-READINESS.md). Exact final results are recorded in draft PR #2; no real PMS or PS5 acceptance is implied.
+
+## Mixed-format acceptance extension
+
+The actual VLC continuity target now verifies source files with ffprobe and negotiated 44.1/48/96 kHz mono/stereo/5.1 PCM, using sixteen directed slots. Schema-2 running checkpoints retain partial duration/counts. New native lifecycle regressions cover format-boundary buffer flushing/pause retention; permission tests cover successful HTTP responses that remove library access. Forty native-view frames include source audio facts and library-access change. Exact-source CI/soak outcomes belong to PR #2; hardware hold remains. See MIXED-AUDIO-ACCEPTANCE.md and HARDWARE-ACCEPTANCE-PLAN.md.

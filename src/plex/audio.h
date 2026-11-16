@@ -7,6 +7,12 @@
 #include <random>
 #include <set>
 namespace plex {
+inline std::string audio_source_label(const Item&item,size_t version=0){
+ if(!item.media.is_array()||version>=item.media.size())return "";const auto&m=item.media[version];
+ auto label=text(m,"audioCodec");auto rate=number(m,"audioSamplingRate"),channels=number(m,"audioChannels");
+ if(rate>0)label+=" · "+std::to_string(rate)+" Hz";if(channels>0)label+=" · "+std::to_string(channels)+" channels";
+ return label.empty()?"":"Source audio: "+label;
+}
 inline bool audio_type(const Item &i) {return i.type=="track";}
 inline bool music_section(const Item &i) {return i.type=="artist";}
 inline bool audio_codec_supported(const std::string&codec){for(const char*known:{"mp3","aac","flac","alac","pcm","pcm_s16le","pcm_s24le","pcm_s32le","pcm_f32le","vorbis","opus"})if(codec==known)return true;return false;}

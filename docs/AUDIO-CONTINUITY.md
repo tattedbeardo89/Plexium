@@ -1,5 +1,7 @@
 # PCM continuity and bounded host soak
 
+The fixed-format measurements below are historical baseline evidence. The current mixed-rate/channel harness and schema-2 partial checkpoints are specified in [MIXED-AUDIO-ACCEPTANCE.md](MIXED-AUDIO-ACCEPTANCE.md).
+
 This measures actual libVLC decoding through the production `Session` music queue,
 not metadata-only state changes. Fixtures are local generated 997 Hz sine tones,
 0.65 seconds each for measured transitions, AAC/MP3/FLAC/Vorbis, rendered as S16N 48 kHz stereo. Plex URLs
@@ -63,7 +65,7 @@ CONTINUITY_CYCLES=160 CONTINUITY_SECONDS=120 bash host/test-audio-continuity.sh
 CONTINUITY_CYCLES=100 CONTINUITY_SECONDS=900 bash host/test-audio-continuity.sh
 ```
 
-Cycles are bounded to 4–1000, duration to 0–3600 seconds. Both minima apply; the
+Cycles are bounded to 16–1000, duration to 0–3600 seconds. Both minima apply; the
 loop ends only after both are satisfied. The optional manual `soak.yml` workflow
 defaults to 900 seconds and does not gate every push. Standard host VLC CI runs
 sixteen transitions normally and with ASan/UBSan. JSON and bounded logs are uploaded

@@ -6,7 +6,7 @@ on:
         description: 'Minimum natural playback duration (0–3600 seconds)'
         default: '900'
       cycles:
-        description: 'Minimum natural transitions (4–1000)'
+        description: 'Minimum natural transitions (16–1000)'
         default: '100'
 permissions:
   contents: read

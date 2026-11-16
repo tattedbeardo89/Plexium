@@ -16,6 +16,7 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "subtitle_latch.h"
+#include "audio_format.h"
 #include "runtime/owned_jobs.h"
 #include "player.h"
 
@@ -751,19 +752,30 @@ plexium::OwnedJob audio_thread;
  * being played plus the one queued. */
 const int64_t AUDIO_LATENCY_US = 2 * AUDIO_GRAIN * 1000000LL / AUDIO_RATE;
 
+bool commit_audio_format(unsigned rate,unsigned channels)
+{
+    if (!plexium::native_pcm_output(rate,channels)) return false;
+    std::lock_guard<std::mutex> g(audio_lock);
+    // A new amem format must never reinterpret or play buffered PCM belonging
+    // to the previous configuration. Keep explicit user pause state intact.
+    audio_clear_locked();
+    vlc_channels = int(channels);
+    return true;
+}
+
 /* Per file, when VLC starts the sound: stereo, or with Surround on and a
  * multichannel file, 6 or 8 channels for the console's 8-channel port. */
 int amem_setup(void **opaque, char *format, unsigned *rate, unsigned *channels)
 {
     (void)opaque;
+    if (!rate || !channels || !plexium::valid_pcm_source(*rate,*channels)) return -1;
     memcpy(format, "S16N", 4);
     *rate = AUDIO_RATE;
     unsigned from = *channels, want = 2;
     if (from > 2 && pref_int("audio_out", 0) == 1 && plat_audio_open_surround())
         want = from >= 7 ? 8 : 6;
     *channels = want;
-    std::lock_guard<std::mutex> g(audio_lock);
-    vlc_channels = (int)want;
+    if (!commit_audio_format(*rate,want)) return -1;
     fprintf(stderr, "player: sound has %u channels, playing %u\n", from, want);
     return 0;
 }
