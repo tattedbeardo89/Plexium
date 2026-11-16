@@ -1,0 +1,19 @@
+# syntax=docker/dockerfile:1
+# Adapted from PlexStation's pinned, signed Arch native toolchain recipe.
+FROM archlinux@sha256:a25b54cf4b9c0de8752f5417c81810fb41bbfa5cdd6a504a9b6816a3b86b1e59
+SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
+RUN --mount=type=secret,id=system_ca,required=true,mode=0444 \
+    printf 'Server = https://archive.archlinux.org/repos/2026/10/20/$repo/os/$arch\n' > /etc/pacman.d/mirrorlist \
+    && sed -i 's|^#XferCommand = /usr/bin/curl.*|XferCommand = /usr/bin/curl --fail --location --cacert /run/secrets/system_ca --output %o %u|' /etc/pacman.conf \
+    && pacman-key --init && pacman-key --populate archlinux \
+    && pacman -Syyuu --noconfirm --needed base-devel clang llvm lld llvm-libs \
+       libclc spirv-llvm-translator spirv-tools glslang meson ninja cmake \
+       python python-mako python-markupsafe python-ply python-packaging python-yaml \
+       git curl wget unzip zip tar pkgconf rsync nasm ccache autoconf automake \
+       libtool gettext gperf bison flex texinfo perl help2man ca-certificates \
+    && pacman -Q > /opt/plexium-packages.txt \
+    && sed -i '/^XferCommand = /d' /etc/pacman.conf \
+    && pacman -Scc --noconfirm
+ENV BUILD_JOBS=2 CCACHE_DIR=/build/ccache CCACHE_MAXSIZE=1G
+WORKDIR /src
+CMD ["bash", "ci/build-native.sh"]

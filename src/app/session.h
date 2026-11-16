@@ -1,0 +1,237 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+#pragma once
+#include "plex/client.h"
+#include "plex/auth.h"
+#include "plex/home.h"
+#include "plex/home_feed.h"
+#include "plex/guide.h"
+#include "plex/streaming.h"
+#include "plex/progress_outbox.h"
+#include "plex/progress_journal.h"
+#include "plex/tracks.h"
+#include "plex/live_session.h"
+#include "plex/guide_preferences.h"
+#include "preferences.h"
+#include "notices.h"
+#include "music_store.h"
+#include "reconnect.h"
+#include <deque>
+#include <thread>
+#include "runtime/owned_jobs.h"
+#include "runtime/paths.h"
+#include <mutex>
+#include <condition_variable>
+#include <memory>
+namespace plexium {
+inline constexpr const char *title_id="PPSA85421";
+inline constexpr const char *data_path=PLEX_STATE_ROOT;
+enum class PlaybackState {Idle,Resolving,Opening,Buffering,Playing,Paused,Seeking,Stopping,Stopped,Error,Released};
+struct PlaybackObservation {bool known=false,playing=false,buffering=false,paused=false,ended=false,failed=false;};
+enum class Screen { Welcome, Linking, Profiles, Pin, Servers, Home, Library, Details, Settings, Search, Playback, Guide, Tracks, Recordings, Notices, Queue };
+enum class Action { Restore, Link, Poll, Cancel, Profile, Server, Home, Library, Browse, Page, Details, Children, Search, Play, FreeTV, PlayLive, Stop, Settings, SignOut, Back, Pause, Seek, Audio, Subtitle, Tick, LiveTV, GuidePage, TuneChannel, Version, Quality, Tracks, SelectAudio, SelectSubtitle, AutoPlay, CancelNext, PlayNext, SkipMarker, FavoriteChannel, FavoriteFilter, MiniGuide, ChannelStep, LastChannel, Recordings, Restart, MarkWatched, Chapter, FastSeek, PlaybackInfo, RetryPlayback, EpisodePrevious, EpisodeNext, QueuePlay, MusicNext, MusicPrevious, MusicShuffle, MusicRepeat, MusicHome, MusicOpen, Suggest, Setting, Diagnose, Notices, OpenNotice, Queue, QueueEdit, QueueAdd, QueueResume, MusicPause, ReconnectServer };
+struct Command { Action action; std::string id, text; };
+struct MediaContext {std::string base,token,scope,account_token;};
+struct Destination {std::string id,label;};
+struct Model {
+ Preferences preferences;
+ std::string connection_label;
+ bool music_available=false,music_paused=false,music_restored=false;
+ size_t queue_offset=0,cache_bytes=0,cache_evictions=0,queue_bytes=0,prefetch_bytes=0;
+ std::vector<plex::Item> queue_rows;std::vector<std::string> queue_ids;
+ std::vector<std::string> notice_labels;
+ std::string notice_body,account_label;
+ std::string build_sha,build_date,app_version,runtime_info,audio_preference,subtitle_preference,search_scope;
+ bool connected=false,playback_info=false,home_stale=false,music_active=false,music_shuffle=false;
+ int music_repeat=0,music_cursor=0,music_total=0;
+ std::vector<plex::Item> music_now,music_preview;
+ plex::LiveSnapshot live;
+ std::vector<plex::Item> recording_rows;
+ bool guide_during_live=false;
+ Screen screen=Screen::Welcome;
+ std::string message,code,profile_name,profile_avatar,server_name,query;
+ std::vector<plex::Profile> profiles;
+ std::vector<Destination> servers, navigation;
+ std::vector<plex::Item> sections, entries;
+ std::vector<plex::Hub> rails;
+ plex::Guide guide;
+ plex::Item detail;
+ std::vector<plex::MediaTrack> audio_tracks,subtitle_tracks;
+ plex::TrackSelection tracks;
+ std::vector<plex::Item> upcoming;
+ int autoplay_remaining=0;bool autoplay=true;bool tracks_during_playback=false;
+ std::string library_id,library_title,library_type,library_tab,library_path;
+ std::vector<plex::Hub> detail_rails;
+ int page_start=0,total=0;
+ PlaybackState playback_state=PlaybackState::Idle;
+ plex::Mode playback_mode=plex::Mode::Unsupported;
+ plex::Quality quality=plex::Quality::Original;
+ size_t media_version=0;
+ bool books=false,paused=false,buffering=false;
+ bool busy=false;
+ int64_t expires=0;
+};
+std::vector<Destination> navigation(const std::vector<plex::Item>&);
+std::string poster(const plex::Item&);
+class PlaybackPort {
+ public: virtual ~PlaybackPort()=default;
+ virtual bool open(const std::string&,int64_t)=0;
+ virtual void prepare_audio(const plex::MediaTrack*){}
+ virtual void stop()=0;
+ virtual int64_t position() const {return 0;}
+ virtual void pause() {}
+ virtual bool paused() const {return false;}
+ virtual void seek(int64_t) {}
+ virtual PlaybackObservation observe() const {return {};}
+ virtual void audio_next() {}
+ virtual void subtitle_next() {}
+ virtual std::vector<plex::NativeTrack> native_tracks(bool)const{return {};}
+ virtual bool select_native_track(bool subtitle,int id){return subtitle&&id<0;}
+ virtual bool add_external_subtitle(const std::string&){return false;}
+};
+// All network/storage/player operations execute on one worker, never the render thread.
+class Session {
+ std::vector<Notice> notice_index;
+ std::string account_name;
+ void notice_command(const Command&);
+ plex::Quality preferred_quality=plex::Quality::Original;
+ bool preferred_autoplay=true,audio_preference_dirty=false,subtitle_preference_dirty=false,connection_verified=false;
+ PreferenceStore preferences;
+ plex::AudioQueue audio_queue;
+ MusicStore music_store;
+ int64_t saved_music_position=0;double music_saved_at=0,music_reported_at=0;bool music_restored=false,music_interrupted=false,network_music_resume=false;
+ size_t queue_offset=0,cache_evictions=0;uint64_t queue_epoch=0;
+ plex::Item prefetched_audio;uint64_t prefetched_uid=0,prefetched_revision=0;double prefetched_at=0;
+ uint64_t prefetch_attempt_uid=0,prefetch_attempt_revision=0;double prefetch_attempt_at=0;
+ Reconnect reconnect;bool authorization_cleared=false;
+ std::vector<uint64_t> restore_validation;size_t restore_validation_at=0;unsigned restore_validation_failures=0;
+ void validate_music();
+ void queue_command(const Command&);
+ void save_music(bool force=false);
+ void bind_music();
+ void prefetch_music();
+ bool audio_metadata(const plex::Item&)const;
+ bool music_focus_video();
+ void resume_after_video(const Command&);
+ void network_result(const plex::Result&);
+ void reliability_tick();
+ bool reconnect_server();
+ void revoke_connection();
+ bool connection_guard(const Command&);
+ void trim_caches();
+ void push_history();
+ void cache_page(const std::string&);
+ void queue_snapshot();
+ plex::Item playing_audio;
+ bool audio_active=false,audio_started=false,defer_music_progress=false;int64_t audio_resume=-1;
+ void decorate();
+ bool feature_command(const Command&);
+ void settings_command(const Command&);
+ void search_command(const Command&);
+ void music_command(const Command&);
+ bool music_tick();
+ bool stop_audio(int64_t captured=-1);
+ plex::TrackSelection music_tracks;
+ void apply_music_tracks();
+ bool open_audio(bool background=false);
+ void report_audio(const std::string&,int64_t);
+ void restore_command();
+ void sign_out_command();
+ void details_command(const Command&);
+ void stop_command(const Command&);
+ void tick_command(const Command&);
+ plex::Client client;
+ std::function<double()> clock;
+ std::string root,device,account,account_id,active,base,token,server_id,current_profile;
+ std::vector<plex::Server> resources;
+ plex::AuthSession auth;
+ Model model;
+ PlaybackPort &player;
+ std::vector<Model> history;
+ std::vector<plex::Hub> cached_home;
+ double home_loaded=-1;
+ struct CachedPage {Model value;double loaded=0;};
+ std::map<std::string,CachedPage> pages;
+ std::map<std::string,std::pair<plex::Item,double>> metadata;
+ std::vector<plex::Item> channels;
+ std::map<std::string,std::string> live_parts;
+ double channels_loaded=0;
+ plex::Json personal_channels=plex::Json::array();
+ double personal_loaded=0;
+ plex::GuidePreferences guide_preferences;
+ plex::PmsLiveProtocol live_protocol;
+ std::unique_ptr<plex::LiveTvSession> live_session;
+ void guide_command(const Command&);
+ void live_snapshot();
+ bool tune_channel(const std::string&,const std::string&);
+ void recordings();
+ plex::StreamPlan stream;
+ std::string stream_base,stream_token;
+ plex::ProgressOutbox outbox;
+ plex::ProgressJournal journal;
+ std::string playback_session,last_ack_session,last_ack_id,last_ack_state,track_preferences_scope;
+ int64_t playback_baseline=0,playback_viewed=0,last_ack_position=-1;
+ bool tracks_pending=false,external_applied=false;double next_deadline=0;
+ std::string audio_language,subtitle_language;bool prefer_subtitles=false;
+ void load_tracks();
+ void apply_tracks();
+ void save_preferences();
+ void prepare_next();
+ bool play_next();
+ bool playback_started=false,local_connection=false;
+ uint64_t playback_serial=0;
+ double heartbeat_at=0;
+ void persist_progress();
+ void report_progress(const std::string&,int64_t);
+ void flush_progress();
+ bool close_stream();
+ bool open_playback(bool force=false);
+ double now() const;
+ void fail(const char*,int=0);
+ bool profiles(bool restore_saved=false);
+ bool select_profile(const std::string&,const std::string&);
+ bool discover();
+ bool connect(const std::string&);
+ bool home(bool refresh=false);
+ bool library(const std::string&,const std::string&);
+ bool listing(const std::string&,int start=0);
+ bool free_tv(bool refresh=false);
+ bool live_tv(int offset,int64_t begins,bool refresh=false);
+ void channel_page(int);
+ void remember_position(int64_t);
+ bool private_root();
+ friend class Runtime;
+ const Model &dispatch_current(const Command&);
+ bool clear_context();
+ public:
+ Session(plex::Transport,const std::string&,PlaybackPort&,std::function<double()> monotonic_clock={});
+ Model dispatch(const Command&);
+ void shutdown();
+ std::function<void(const Model&)> progress;
+ MediaContext media_context()const;
+};
+class Runtime {
+ std::unique_ptr<Session> session;
+ mutable std::mutex mutex;
+ std::condition_variable cv;
+ std::deque<std::pair<uint64_t,Command>> queue;
+ Model model;
+ MediaContext context;
+ uint64_t generation=0;
+ bool closing=false;
+ OwnedJob worker;
+ int worker_error=0;
+ void run();
+ public:
+ explicit Runtime(std::unique_ptr<Session>);
+ ~Runtime();
+ // Owner-thread operation: close the render queue before joining this worker.
+ bool close(std::chrono::milliseconds timeout=std::chrono::milliseconds(2000));
+ bool ready()const{std::lock_guard<std::mutex> lock(mutex);return !closing&&worker_error==0;}
+ int start_error()const{return worker_error;}
+ bool send(Command);
+ Model snapshot() const;
+ // Copy into reusable caller-owned storage; model and credentials share one epoch.
+ void snapshot_into(Model&,MediaContext&) const;
+ MediaContext media_context() const;
+};
+}

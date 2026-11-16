@@ -1,0 +1,30 @@
+{
+  "source": "https://download.videolan.org/pub/videolan/vlc/3.0.24/vlc-3.0.24.tar.xz",
+  "upstream_sha256": "e7cab503d1d7d5849b89d2cf0e1ee60d0ef6d012407791b644b9cfc0cc225fdf",
+  "manifests": {
+    "ffmpeg-8.1.2.tar.xz": "ffmpeg/SHA512SUMS",
+    "pupnp-release-1.14.31.tar.gz": "upnp/SHA512SUMS",
+    "libebml-1.4.6.tar.xz": "ebml/SHA512SUMS",
+    "gmp-6.3.0.tar.xz": "gmp/SHA512SUMS",
+    "libsmb2-6.1.tar.gz": "smb2/SHA512SUMS",
+    "gnutls-3.8.13.tar.xz": "gnutls/SHA512SUMS",
+    "nettle-3.10.2.tar.gz": "nettle/SHA512SUMS",
+    "libbluray-1.4.1.tar.xz": "bluray/SHA512SUMS",
+    "libarchive-3.8.9.tar.xz": "libarchive/SHA512SUMS",
+    "libdvbpsi-1.3.3.tar.bz2": "dvbpsi/SHA512SUMS",
+    "libdvdnav-6.1.1.tar.bz2": "dvdnav/SHA512SUMS",
+    "libxml2-2.15.3.tar.xz": "libxml2/SHA512SUMS",
+    "libdvdread-6.1.3.tar.bz2": "dvdread/SHA512SUMS",
+    "dav1d-1.5.4.tar.xz": "dav1d/SHA512SUMS",
+    "libmatroska-1.7.2.tar.xz": "matroska/SHA512SUMS",
+    "libass-0.17.5.tar.xz": "ass/SHA512SUMS"
+  },
+  "additional_sources": {
+    "fribidi-1.0.16.tar.xz": "https://raw.githubusercontent.com/videolan/vlc/d35370a231088a89a247765bd587265991801c81/contrib/src/fribidi/SHA512SUMS",
+    "libiconv-1.18.tar.gz": "https://raw.githubusercontent.com/videolan/vlc/d35370a231088a89a247765bd587265991801c81/contrib/src/iconv/SHA512SUMS",
+    "zlib-1.3.1.tar.xz": "https://raw.githubusercontent.com/videolan/vlc/578d28f6c9f2379164516e689418f92ac74a3445/contrib/src/zlib/SHA512SUMS",
+    "nasm-2.16.03.tar.gz": "verified VLC archive extras/tools/SHA512SUMS",
+    "freetype-2.13.3.tar.xz": "https://raw.githubusercontent.com/buildroot/buildroot/2025.02/package/freetype/freetype.hash (cites upstream SourceForge checksum)",
+    "harfbuzz-10.4.0.tar.xz": "https://raw.githubusercontent.com/mesonbuild/wrapdb/6b12ad1288685bbed414e835918d7313e8adcddc/subprojects/harfbuzz.wrap"
+  }
+}
